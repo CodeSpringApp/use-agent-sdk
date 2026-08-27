@@ -1,6 +1,6 @@
 import type {
   AgentDefinition,
-  BrowserUseAgentClientOptions,
+  BrowserAgentClientOptions,
   CreateSessionResponse,
   FetchLike,
   ListEventsResponse,
@@ -8,10 +8,10 @@ import type {
   SessionSnapshot,
   SubmitOptions,
   SubmitTurnResponse,
-  UseAgentClientOptions,
+  AgentClientOptions,
 } from "./types";
 
-export class UseAgentError extends Error {
+export class AgentError extends Error {
   constructor(
     message: string,
     public readonly status: number,
@@ -20,7 +20,7 @@ export class UseAgentError extends Error {
     public readonly details?: unknown,
   ) {
     super(message);
-    this.name = "UseAgentError";
+    this.name = "AgentError";
   }
 }
 
@@ -52,7 +52,7 @@ class Transport {
     const payload = await readJson(response);
     if (!response.ok) {
       const error = isObject(payload) && isObject(payload.error) ? payload.error : undefined;
-      throw new UseAgentError(
+      throw new AgentError(
         typeof error?.message === "string" ? error.message : `Use Agent request failed with ${response.status}`,
         response.status,
         typeof error?.code === "string" ? error.code : "request_failed",
@@ -71,7 +71,7 @@ async function readJson(response: Response): Promise<unknown> {
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.includes("application/json")) {
     if (!response.ok) return undefined;
-    throw new UseAgentError("Runtime returned a non-JSON response", response.status, "invalid_response");
+    throw new AgentError("Runtime returned a non-JSON response", response.status, "invalid_response");
   }
   return response.json();
 }
@@ -138,7 +138,7 @@ export interface TurnStatusResponse {
   status: string;
 }
 
-export class UseAgentClient {
+export class AgentClient {
   constructor(private readonly transport: Transport) {}
 
   readonly sessions = {
@@ -155,9 +155,9 @@ export class UseAgentClient {
 }
 
 /** Server entrypoint. Never pass this client or its API key into a browser bundle. */
-export function createUseAgent(options: UseAgentClientOptions): UseAgentClient {
+export function createClient(options: AgentClientOptions): AgentClient {
   if (!options.apiKey.trim()) throw new TypeError("apiKey is required");
-  return new UseAgentClient(
+  return new AgentClient(
     new Transport({
       endpoint: options.endpoint,
       token: async () => options.apiKey,
@@ -167,8 +167,8 @@ export function createUseAgent(options: UseAgentClientOptions): UseAgentClient {
 }
 
 /** Browser-safe client used by the React subpath with short-lived client tokens. */
-export function createBrowserUseAgent(options: BrowserUseAgentClientOptions): UseAgentClient {
-  return new UseAgentClient(
+export function createBrowserClient(options: BrowserAgentClientOptions): AgentClient {
+  return new AgentClient(
     new Transport({
       endpoint: options.endpoint,
       token: options.getClientToken,

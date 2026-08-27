@@ -51,10 +51,8 @@ export interface ListEventsResponse {
   hasMore: boolean;
 }
 
-export interface AgentModelReference {
-  provider: "anthropic" | "openai" | (string & {});
-  model: string;
-}
+/** Tenant-scoped model profile configured in the CodeSpring control plane. */
+export type ModelProfileId = string;
 
 export interface AgentToolReference {
   name: string;
@@ -76,7 +74,7 @@ export interface AgentDefinition {
   readonly revision: string;
   readonly revisionId: string;
   readonly instructions?: string;
-  readonly model?: AgentModelReference;
+  readonly model?: ModelProfileId;
   readonly tools: readonly AgentToolReference[];
   readonly mcpServers: readonly AgentMcpServerReference[];
   readonly skills: readonly AgentSkillReference[];
@@ -87,7 +85,7 @@ export interface CreateAgentOptions {
   id: string;
   revision: string;
   instructions?: string;
-  model?: AgentModelReference;
+  model?: ModelProfileId;
   tools?: AgentToolReference[];
   mcpServers?: AgentMcpServerReference[];
   skills?: AgentSkillReference[];
@@ -104,13 +102,13 @@ export interface SubmitOptions extends RequestOptions {
 
 export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
-export interface UseAgentClientOptions {
+export interface AgentClientOptions {
   endpoint: string;
   apiKey: string;
   fetch?: FetchLike;
 }
 
-export interface BrowserUseAgentClientOptions {
+export interface BrowserAgentClientOptions {
   endpoint: string;
   getClientToken: () => Promise<string>;
   fetch?: FetchLike;

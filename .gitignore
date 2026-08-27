@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-showcase/
 *.tgz
 .DS_Store
 coverage/

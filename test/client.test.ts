@@ -1,16 +1,22 @@
 import { describe, expect, test } from "bun:test";
-import { createAgent, createUseAgent } from "../src";
+import { createAgent, createClient } from "../src";
 
 describe("public SDK", () => {
   test("createAgent returns a stable revision reference", () => {
-    const agent = createAgent({ id: "support", revision: "7", skills: [{ id: "returns" }] });
+    const agent = createAgent({
+      id: "support",
+      revision: "7",
+      model: "support-primary",
+      skills: [{ id: "returns" }],
+    });
     expect(agent.revisionId).toBe("support@7");
+    expect(agent.model).toBe("support-primary");
     expect(Object.isFrozen(agent)).toBe(true);
   });
 
   test("session creation authenticates and uses the agent revision", async () => {
     const requests: Request[] = [];
-    const client = createUseAgent({
+    const client = createClient({
       endpoint: "http://localhost:8787",
       apiKey: "ua_test_secret",
       fetch: async (input, init) => {
@@ -29,7 +35,7 @@ describe("public SDK", () => {
   });
 
   test("surfaces stable runtime error metadata", async () => {
-    const client = createUseAgent({
+    const client = createClient({
       endpoint: "http://localhost:8787",
       apiKey: "ua_test_secret",
       fetch: async () =>

@@ -1,9 +1,9 @@
 export { createAgent } from "./agent";
 export {
   AgentSession,
-  createBrowserUseAgent,
-  createUseAgent,
-  UseAgentClient,
-  UseAgentError,
+  AgentClient,
+  AgentError,
+  createBrowserClient,
+  createClient,
 } from "./client";
 export type * from "./types";

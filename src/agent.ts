@@ -29,7 +29,7 @@ export function createAgent(options: CreateAgentOptions): AgentDefinition {
     revision,
     revisionId: `${id}@${revision}`,
     ...(options.instructions === undefined ? {} : { instructions: options.instructions }),
-    ...(options.model === undefined ? {} : { model: Object.freeze({ ...options.model }) }),
+    ...(options.model === undefined ? {} : { model: requireIdentifier(options.model, "model") }),
     tools: Object.freeze(tools.map((tool) => Object.freeze(tool))),
     mcpServers: Object.freeze((options.mcpServers ?? []).map((server) => Object.freeze({ ...server }))),
     skills: Object.freeze((options.skills ?? []).map((skill) => Object.freeze({ ...skill }))),

@@ -43,8 +43,13 @@ import {
   AgentChat,
   AgentProvider,
   createAgentAppearance,
-  useAgentConnection,
+  createAgentClient,
 } from "@codespring-app/use-agent/react";
+
+const agentClient = createAgentClient({
+  endpoint: "https://api.agents.codespring.app",
+  clientTokenEndpoint: "/api/agents/token",
+});
 
 const acmeAppearance = createAgentAppearance({
   theme: { accent: "#2856D8" },
@@ -52,13 +57,8 @@ const acmeAppearance = createAgentAppearance({
 });
 
 export function App({ sessionId }: { sessionId: string }) {
-  const client = useAgentConnection({
-    endpoint: "https://api.agents.codespring.app",
-    clientTokenEndpoint: "/api/agents/token",
-  });
-
   return (
-    <AgentProvider client={client} appearance={acmeAppearance}>
+    <AgentProvider client={agentClient} appearance={acmeAppearance}>
       <AgentChat sessionId={sessionId} />
     </AgentProvider>
   );

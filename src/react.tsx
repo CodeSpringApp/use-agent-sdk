@@ -204,7 +204,7 @@ export function useAgentClient(): AgentClient {
   return useAgentContext().client;
 }
 
-export interface UseAgentConnectionOptions {
+export interface CreateAgentClientOptions {
   endpoint: string;
   clientTokenEndpoint: string;
   fetch?: BrowserAgentClientOptions["fetch"];
@@ -213,52 +213,41 @@ export interface UseAgentConnectionOptions {
   refreshSkewMs?: number;
 }
 
-/** Creates one browser client and owns its in-memory, deduplicated client-token cache. */
-export function useAgentConnection({
+/** Creates one stable browser client with an in-memory, deduplicated client-token cache. */
+export function createAgentClient({
   endpoint,
   clientTokenEndpoint,
   fetch: fetchImplementation,
   credentials = "same-origin",
   clientTokenTtlMs,
   refreshSkewMs,
-}: UseAgentConnectionOptions): AgentClient {
-  return useMemo(
-    () =>
-      createBrowserClient({
-        endpoint,
-        getClientToken: async () => {
-          const request = fetchImplementation ?? globalThis.fetch;
-          if (!request) throw new TypeError("A fetch implementation is required");
-          const response = await request(clientTokenEndpoint, {
-            method: "POST",
-            credentials,
-            headers: { Accept: "application/json" },
-          });
-          if (!response.ok) throw new Error(`Client token request failed with ${response.status}`);
-          const contentType = response.headers.get("content-type") ?? "";
-          if (!contentType.includes("application/json")) return response.text();
-          const body = (await response.json()) as { token?: unknown; expiresAt?: unknown };
-          if (typeof body.token !== "string") throw new Error("Client token response is missing token");
-          return {
-            token: body.token,
-            ...(typeof body.expiresAt === "string" || typeof body.expiresAt === "number"
-              ? { expiresAt: body.expiresAt }
-              : {}),
-          };
-        },
-        ...(fetchImplementation === undefined ? {} : { fetch: fetchImplementation }),
-        ...(clientTokenTtlMs === undefined ? {} : { clientTokenTtlMs }),
-        ...(refreshSkewMs === undefined ? {} : { refreshSkewMs }),
-      }),
-    [
-      endpoint,
-      clientTokenEndpoint,
-      fetchImplementation,
-      credentials,
-      clientTokenTtlMs,
-      refreshSkewMs,
-    ],
-  );
+}: CreateAgentClientOptions): AgentClient {
+  return createBrowserClient({
+    endpoint,
+    getClientToken: async () => {
+      const request = fetchImplementation ?? globalThis.fetch;
+      if (!request) throw new TypeError("A fetch implementation is required");
+      const response = await request(clientTokenEndpoint, {
+        method: "POST",
+        credentials,
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) throw new Error(`Client token request failed with ${response.status}`);
+      const contentType = response.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) return response.text();
+      const body = (await response.json()) as { token?: unknown; expiresAt?: unknown };
+      if (typeof body.token !== "string") throw new Error("Client token response is missing token");
+      return {
+        token: body.token,
+        ...(typeof body.expiresAt === "string" || typeof body.expiresAt === "number"
+          ? { expiresAt: body.expiresAt }
+          : {}),
+      };
+    },
+    ...(fetchImplementation === undefined ? {} : { fetch: fetchImplementation }),
+    ...(clientTokenTtlMs === undefined ? {} : { clientTokenTtlMs }),
+    ...(refreshSkewMs === undefined ? {} : { refreshSkewMs }),
+  });
 }
 
 export function useAgentTheme(): AgentTheme {

@@ -5,6 +5,7 @@ import {
   AgentMessage,
   AgentProvider,
   createAgentAppearance,
+  createAgentClient,
   paperDarkTheme,
   paperLightTheme,
   reduceAgentMessages,
@@ -21,6 +22,34 @@ const base = {
 };
 
 describe("React SDK", () => {
+  test("creates a stable browser client from a same-origin token endpoint", async () => {
+    const requests: string[] = [];
+    const client = createAgentClient({
+      endpoint: "http://localhost:8787",
+      clientTokenEndpoint: "/api/agents/token",
+      fetch: async (input, init) => {
+        requests.push(String(input));
+        if (String(input) === "/api/agents/token") {
+          expect(init?.method).toBe("POST");
+          return Response.json({ token: "client-token", expiresAt: Date.now() + 300_000 });
+        }
+        expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer client-token");
+        return Response.json({
+          sessionId: "session-1",
+          agentRevisionId: "support@7",
+          createdAt: base.createdAt,
+          updatedAt: base.createdAt,
+          cursor: 0,
+          turns: [],
+        });
+      },
+    });
+
+    expect(requests).toEqual([]);
+    await client.sessions.get("session-1").get();
+    expect(requests).toEqual(["/api/agents/token", "http://localhost:8787/v1/sessions/session-1"]);
+  });
+
   test("pins Ferb Paper light and dark palettes", () => {
     expect(paperLightTheme).toMatchObject({
       canvas: "#FFFFFF",

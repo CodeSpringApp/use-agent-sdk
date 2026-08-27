@@ -34,10 +34,29 @@ export interface AgentTheme {
   accent: string;
   fontFamily: string;
   monoFamily: string;
-  contentMaxWidth: number;
-  containerRadius: number;
-  wellRadius: number;
+  contentMaxWidth: number | string;
+  containerRadius: number | string;
+  wellRadius: number | string;
 }
+
+/** Stable CSS custom-property names supported by every default component. */
+export const agentThemeVariables = Object.freeze({
+  canvas: "--codespring-agent-canvas",
+  ink: "--codespring-agent-ink",
+  inkSecondary: "--codespring-agent-ink-secondary",
+  inkTertiary: "--codespring-agent-ink-tertiary",
+  well: "--codespring-agent-well",
+  hairline: "--codespring-agent-hairline",
+  statusGood: "--codespring-agent-status-good",
+  statusBad: "--codespring-agent-status-bad",
+  statusWarn: "--codespring-agent-status-warn",
+  accent: "--codespring-agent-accent",
+  fontFamily: "--codespring-agent-font-family",
+  monoFamily: "--codespring-agent-mono-family",
+  contentMaxWidth: "--codespring-agent-content-max-width",
+  containerRadius: "--codespring-agent-container-radius",
+  wellRadius: "--codespring-agent-well-radius",
+} satisfies Record<keyof AgentTheme, `--${string}`>);
 
 export interface AgentCopy {
   title: string;
@@ -132,6 +151,46 @@ export function createAgentAppearance({
 export const paperAppearance = createAgentAppearance();
 export const paperDarkAppearance = createAgentAppearance({ mode: "dark" });
 
+function cssLength(value: number | string): string {
+  return typeof value === "number" ? `${value}px` : value;
+}
+
+function cssVariable(name: `--${string}`, fallback: string): string {
+  return fallback === `var(${name})` || fallback.startsWith(`var(${name},`)
+    ? fallback
+    : `var(${name}, ${fallback})`;
+}
+
+function withThemeVariables(theme: AgentTheme): AgentTheme {
+  return {
+    canvas: cssVariable(agentThemeVariables.canvas, theme.canvas),
+    ink: cssVariable(agentThemeVariables.ink, theme.ink),
+    inkSecondary: cssVariable(agentThemeVariables.inkSecondary, theme.inkSecondary),
+    inkTertiary: cssVariable(agentThemeVariables.inkTertiary, theme.inkTertiary),
+    well: cssVariable(agentThemeVariables.well, theme.well),
+    hairline: cssVariable(agentThemeVariables.hairline, theme.hairline),
+    statusGood: cssVariable(agentThemeVariables.statusGood, theme.statusGood),
+    statusBad: cssVariable(agentThemeVariables.statusBad, theme.statusBad),
+    statusWarn: cssVariable(agentThemeVariables.statusWarn, theme.statusWarn),
+    accent: cssVariable(agentThemeVariables.accent, theme.accent),
+    fontFamily: cssVariable(agentThemeVariables.fontFamily, theme.fontFamily),
+    monoFamily: cssVariable(agentThemeVariables.monoFamily, theme.monoFamily),
+    contentMaxWidth: cssVariable(agentThemeVariables.contentMaxWidth, cssLength(theme.contentMaxWidth)),
+    containerRadius: cssVariable(agentThemeVariables.containerRadius, cssLength(theme.containerRadius)),
+    wellRadius: cssVariable(agentThemeVariables.wellRadius, cssLength(theme.wellRadius)),
+  };
+}
+
+function withThemeOverrides(base: AgentTheme, overrides: Partial<AgentTheme> | undefined): AgentTheme {
+  if (!overrides) return base;
+  const resolvedOverrides = withThemeVariables({ ...paperLightTheme, ...overrides });
+  const merged = { ...base } as Record<keyof AgentTheme, AgentTheme[keyof AgentTheme]>;
+  for (const key of Object.keys(overrides) as Array<keyof AgentTheme>) {
+    if (overrides[key] !== undefined) merged[key] = resolvedOverrides[key];
+  }
+  return merged as AgentTheme;
+}
+
 interface AgentContextValue {
   client: AgentClient;
   theme: AgentTheme;
@@ -170,7 +229,7 @@ export function AgentProvider({
   const stableTheme = useStablePartial(theme);
   const stableCopy = useStablePartial(copy);
   const resolvedTheme = useMemo(
-    () => Object.freeze({ ...appearance.theme, ...stableTheme }),
+    () => Object.freeze(withThemeVariables({ ...appearance.theme, ...stableTheme })),
     [appearance.theme, stableTheme],
   );
   const resolvedCopy = useMemo(
@@ -777,7 +836,7 @@ function AgentMarkdown({ content, colors }: { content: string; colors: AgentThem
 
 export function AgentMessage({ message, className, style, theme, copy }: AgentMessageProps) {
   const context = useAgentContext();
-  const colors = { ...context.theme, ...theme };
+  const colors = withThemeOverrides(context.theme, theme);
   const labels = { ...context.copy, ...copy };
   const isUser = message.role === "user";
   const fallback =
@@ -892,7 +951,7 @@ function StatusGlyph({ status, colors }: { status: AgentToolCallStatus; colors: 
 
 export function AgentToolCall({ toolCall, className, style, theme, copy }: AgentToolCallProps) {
   const context = useAgentContext();
-  const colors = { ...context.theme, ...theme };
+  const colors = withThemeOverrides(context.theme, theme);
   const labels = { ...context.copy, ...copy };
   const [expanded, setExpanded] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -1026,7 +1085,7 @@ export function AgentMessageList({
   copy,
 }: AgentMessageListProps) {
   const context = useAgentContext();
-  const colors = { ...context.theme, ...theme };
+  const colors = withThemeOverrides(context.theme, theme);
   const labels = { ...context.copy, ...copy };
   const end = useRef<HTMLDivElement>(null);
   const scrollSurface = useRef<HTMLDivElement>(null);
@@ -1070,13 +1129,23 @@ export function AgentMessageList({
           return renderToolCall ? (
             <div key={`tool:${row.item.id}`}>{renderToolCall(row.item)}</div>
           ) : (
-            <AgentToolCall key={`tool:${row.item.id}`} toolCall={row.item} theme={colors} copy={labels} />
+            <AgentToolCall
+              key={`tool:${row.item.id}`}
+              toolCall={row.item}
+              {...(theme === undefined ? {} : { theme })}
+              {...(copy === undefined ? {} : { copy })}
+            />
           );
         }
         return renderMessage ? (
           <div key={`message:${row.item.id}`}>{renderMessage(row.item)}</div>
         ) : (
-          <AgentMessage key={`message:${row.item.id}`} message={row.item} theme={colors} copy={labels} />
+          <AgentMessage
+            key={`message:${row.item.id}`}
+            message={row.item}
+            {...(theme === undefined ? {} : { theme })}
+            {...(copy === undefined ? {} : { copy })}
+          />
         );
       })}
       {isWorking && !messages.some((message) => message.status === "streaming") ? (
@@ -1121,7 +1190,7 @@ export function AgentComposer({
   copy,
 }: AgentComposerProps) {
   const context = useAgentContext();
-  const colors = { ...context.theme, ...theme };
+  const colors = withThemeOverrides(context.theme, theme);
   const labels = { ...context.copy, ...copy };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1244,7 +1313,7 @@ export function AgentChat({
   onError,
 }: AgentChatProps) {
   const context = useAgentContext();
-  const colors = { ...context.theme, ...theme };
+  const colors = withThemeOverrides(context.theme, theme);
   const labels = { ...context.copy, ...copy };
   const session = useAgentSession(sessionId);
   const [draft, setDraft] = useState("");
@@ -1321,8 +1390,8 @@ export function AgentChat({
             isWorking={isWorking}
             {...(renderMessage === undefined ? {} : { renderMessage })}
             {...(renderToolCall === undefined ? {} : { renderToolCall })}
-            theme={colors}
-            copy={labels}
+            {...(theme === undefined ? {} : { theme })}
+            {...(copy === undefined ? {} : { copy })}
           />
         )}
         <div
@@ -1340,8 +1409,8 @@ export function AgentChat({
             leadingActions={composerLeadingActions}
             trailingActions={composerTrailingActions}
             {...(activeTurn ? { onCancel: () => session.cancel(activeTurn.id) } : {})}
-            theme={colors}
-            copy={labels}
+            {...(theme === undefined ? {} : { theme })}
+            {...(copy === undefined ? {} : { copy })}
           />
         </div>
       </div>

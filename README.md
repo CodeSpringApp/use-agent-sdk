@@ -71,11 +71,72 @@ after a 401. It never persists the token. `createAgentAppearance` produces a
 frozen, reusable preset so unrelated renders do not invalidate theme/copy
 consumers; use `useMemo` when appearance must be dynamic.
 
-The defaults implement Ferb's Paper experience: assistant replies are document
-content on an edge-to-edge canvas, user messages are quiet trailing wells, tool
-calls are compact inspectable activity rows, and the live-edge composer has no
-shadow. `paperLightTheme`, `paperDarkTheme`, theme/copy overrides, slots, and
-render functions are available for customization.
+The default Paper experience renders assistant replies as document content on
+an edge-to-edge canvas, user messages as quiet trailing wells, tool calls as
+compact inspectable activity rows, and the live-edge composer without a shadow.
+`paperLightTheme`, `paperDarkTheme`, theme/copy overrides, slots, and render
+functions are available for customization.
+
+## CSS variables, Tailwind CSS, and StyleX
+
+Every default component resolves theme tokens through inherited
+`--codespring-agent-*` custom properties. Variables override the appearance
+preset; unset variables use the selected Paper or custom appearance value as a
+fallback.
+
+```css
+.acme-agent-theme {
+  --codespring-agent-accent: #2856d8;
+  --codespring-agent-container-radius: 18px;
+  --codespring-agent-content-max-width: 52rem;
+}
+```
+
+The public names are also exported as `agentThemeVariables`. Supported tokens
+are `canvas`, `ink`, `inkSecondary`, `inkTertiary`, `well`, `hairline`,
+`statusGood`, `statusBad`, `statusWarn`, `accent`, `fontFamily`, `monoFamily`,
+`contentMaxWidth`, `containerRadius`, and `wellRadius`.
+
+Tailwind CSS can set the variables on any ancestor:
+
+```css
+@theme {
+  --color-acme-primary: #2856d8;
+}
+```
+
+```tsx
+<div className="[--codespring-agent-accent:var(--color-acme-primary)] [--codespring-agent-container-radius:18px]">
+  <AgentProvider client={agentClient} appearance={acmeAppearance}>
+    <AgentChat sessionId={sessionId} />
+  </AgentProvider>
+</div>
+```
+
+StyleX variables can be used as appearance values and themed from an ancestor:
+
+```tsx
+// agent-theme.stylex.ts
+import * as stylex from "@stylexjs/stylex";
+
+export const agentTokens = stylex.defineVars({ accent: "#3B6AC5" });
+```
+
+```tsx
+import * as stylex from "@stylexjs/stylex";
+import { agentTokens } from "./agent-theme.stylex";
+
+const brandedTheme = stylex.createTheme(agentTokens, { accent: "#2856D8" });
+const stylexAppearance = createAgentAppearance({
+  theme: { accent: agentTokens.accent },
+});
+
+<div {...stylex.props(brandedTheme)}>
+  <AgentProvider client={agentClient} appearance={stylexAppearance}>
+    <AgentChat sessionId={sessionId} />
+  </AgentProvider>
+</div>;
+```
 
 ## Headless React
 
@@ -85,9 +146,8 @@ build a completely custom interface. The composable `AgentMessageList`,
 `AgentMessage`, `AgentToolCall`, and `AgentComposer` primitives can also be
 mixed with client-owned components.
 
-The React entrypoint only accepts a short-lived client-token callback. The
-client-token endpoint is part of the platform roadmap and must be implemented
-before using this flow in production.
+The browser entrypoint never accepts an API key. A trusted application backend
+must issue short-lived, origin-bound client tokens.
 
 ## Local showcase
 

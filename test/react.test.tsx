@@ -4,6 +4,7 @@ import { createBrowserClient } from "../src";
 import {
   AgentMessage,
   AgentProvider,
+  agentThemeVariables,
   createAgentAppearance,
   createAgentClient,
   paperDarkTheme,
@@ -51,6 +52,9 @@ describe("React SDK", () => {
   });
 
   test("pins Ferb Paper light and dark palettes", () => {
+    expect(agentThemeVariables.accent).toBe("--codespring-agent-accent");
+    expect(agentThemeVariables.contentMaxWidth).toBe("--codespring-agent-content-max-width");
+    expect(Object.keys(agentThemeVariables).sort()).toEqual(Object.keys(paperLightTheme).sort());
     expect(paperLightTheme).toMatchObject({
       canvas: "#FFFFFF",
       ink: "#141414",
@@ -116,6 +120,15 @@ describe("React SDK", () => {
 
     expect(html).toContain("Where is my order?");
     expect(html).toContain('aria-label="Customer"');
+    expect(html).toContain("var(--codespring-agent-well, #F5F5F8)");
+
+    const themedHtml = renderToStaticMarkup(
+      <AgentProvider client={client}>
+        <AgentMessage message={message} theme={{ well: "#ABCDEF" }} />
+      </AgentProvider>,
+    );
+    expect(themedHtml).toContain("var(--codespring-agent-well, #ABCDEF)");
+    expect(themedHtml).not.toContain("var(--codespring-agent-well, var(--codespring-agent-well");
   });
 
   test("reduces durable tool lifecycle events", () => {

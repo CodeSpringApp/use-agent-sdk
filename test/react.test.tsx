@@ -5,6 +5,7 @@ import {
   AgentMessage,
   AgentProvider,
   reduceAgentMessages,
+  reduceAgentToolCalls,
   type AgentChatMessage,
 } from "../src/react";
 import type { AgentEvent } from "../src/types";
@@ -56,5 +57,35 @@ describe("React SDK", () => {
 
     expect(html).toContain("Where is my order?");
     expect(html).toContain('aria-label="Customer"');
+  });
+
+  test("reduces durable tool lifecycle events", () => {
+    const events: AgentEvent[] = [
+      {
+        ...base,
+        id: 1,
+        attempt: 1,
+        type: "tool.call.started",
+        data: { toolCallId: "call-1", name: "orders.lookup", label: "Look up order", input: { orderId: "CS-1042" } },
+      },
+      {
+        ...base,
+        id: 2,
+        attempt: 1,
+        type: "tool.call.completed",
+        data: { toolCallId: "call-1", name: "orders.lookup", output: { status: "in_transit" } },
+      },
+    ];
+
+    expect(reduceAgentToolCalls(events)).toEqual([
+      expect.objectContaining({
+        id: "call-1",
+        name: "orders.lookup",
+        label: "Look up order",
+        status: "completed",
+        input: { orderId: "CS-1042" },
+        output: { status: "in_transit" },
+      }),
+    ]);
   });
 });

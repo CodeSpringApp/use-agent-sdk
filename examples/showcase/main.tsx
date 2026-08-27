@@ -18,8 +18,37 @@ const events = [
   { schemaVersion: 1, id: 3, sessionId, turnId, attempt: 0, type: "turn.queued", createdAt: now, data: {} },
   { schemaVersion: 1, id: 4, sessionId, turnId, attempt: 1, type: "turn.started", createdAt: now, data: {} },
   { schemaVersion: 1, id: 5, sessionId, turnId, attempt: 1, type: "message.started", createdAt: now, data: {} },
-  { schemaVersion: 1, id: 6, sessionId, turnId, attempt: 1, type: "message.completed", createdAt: now, data: { content: answer } },
-  { schemaVersion: 1, id: 7, sessionId, turnId, attempt: 1, type: "turn.completed", createdAt: now, data: {} },
+  {
+    schemaVersion: 1,
+    id: 6,
+    sessionId,
+    turnId,
+    attempt: 1,
+    type: "tool.call.started",
+    createdAt: now,
+    data: {
+      toolCallId: "lookup-CS-1042",
+      name: "commerce.lookup_order",
+      label: "Looked up order CS-1042",
+      input: { orderId: "CS-1042" },
+    },
+  },
+  {
+    schemaVersion: 1,
+    id: 7,
+    sessionId,
+    turnId,
+    attempt: 1,
+    type: "tool.call.completed",
+    createdAt: now,
+    data: {
+      toolCallId: "lookup-CS-1042",
+      name: "commerce.lookup_order",
+      output: { status: "in_transit", expectedDelivery: "2026-08-29" },
+    },
+  },
+  { schemaVersion: 1, id: 8, sessionId, turnId, attempt: 1, type: "message.completed", createdAt: now, data: { content: answer } },
+  { schemaVersion: 1, id: 9, sessionId, turnId, attempt: 1, type: "turn.completed", createdAt: now, data: {} },
 ];
 
 const client = createBrowserClient({

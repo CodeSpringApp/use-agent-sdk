@@ -4,6 +4,8 @@ The supported server and React SDK for CodeSpring Agents. It speaks a versioned
 HTTP protocol and contains no Cloudflare runtime implementation, so the same
 application can target CodeSpring-hosted or self-hosted endpoints.
 
+![An agent built with the use-agent React SDK](./docs/screenshots/default-agent.png)
+
 ## Server
 
 ```ts
@@ -57,20 +59,17 @@ export function App() {
 ```
 
 The default components are inspired by Ferb: assistant replies are readable
-document content, user messages are quiet right-aligned cards, and the composer
-stays compact. `theme` and `copy` are typed and can be set at the provider or
-component level.
-
-![Default agent UI](./docs/screenshots/default-agent.png)
-
-![Client-themed agent UI](./docs/screenshots/client-themed-agent.png)
+document content, user messages are quiet right-aligned cards, tool calls are
+durable inspectable activity rows, and the composer stays compact. `theme` and
+`copy` are typed and can be set at the provider or component level.
 
 ## Headless React
 
 Advanced clients can use `useAgentSession`, `useAgentMessages`,
-`useAgentClient`, `useAgentTheme`, and `useAgentCopy` to build a completely
-custom interface. The composable `AgentMessageList`, `AgentMessage`, and
-`AgentComposer` primitives can also be mixed with client-owned components.
+`useAgentToolCalls`, `useAgentClient`, `useAgentTheme`, and `useAgentCopy` to
+build a completely custom interface. The composable `AgentMessageList`,
+`AgentMessage`, `AgentToolCall`, and `AgentComposer` primitives can also be
+mixed with client-owned components.
 
 The React entrypoint only accepts a short-lived client-token callback. The
 client-token endpoint is part of the platform roadmap and must be implemented

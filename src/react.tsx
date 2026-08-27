@@ -48,6 +48,10 @@ export interface AgentCopy {
   cancelled: string;
   userLabel: string;
   assistantLabel: string;
+  toolRunning: string;
+  toolCompleted: string;
+  toolFailed: string;
+  toolApprovalRequired: string;
 }
 
 const defaultTheme: AgentTheme = {
@@ -77,6 +81,10 @@ const defaultCopy: AgentCopy = {
   cancelled: "This message was cancelled.",
   userLabel: "You",
   assistantLabel: "Assistant",
+  toolRunning: "Running",
+  toolCompleted: "Completed",
+  toolFailed: "Failed",
+  toolApprovalRequired: "Approval required",
 };
 
 interface AgentContextValue {
@@ -149,10 +157,34 @@ export interface AgentChatMessage {
   eventId: number;
 }
 
+export type AgentToolCallStatus =
+  | "proposed"
+  | "running"
+  | "completed"
+  | "failed"
+  | "approval_required";
+
+export interface AgentToolCall {
+  id: string;
+  turnId: string;
+  name: string;
+  label: string;
+  status: AgentToolCallStatus;
+  input?: unknown;
+  output?: unknown;
+  createdAt: string;
+  eventId: number;
+}
+
 function stringField(data: unknown, key: string): string | undefined {
   if (!data || typeof data !== "object") return undefined;
   const value = (data as Record<string, unknown>)[key];
   return typeof value === "string" ? value : undefined;
+}
+
+function unknownField(data: unknown, key: string): unknown {
+  if (!data || typeof data !== "object") return undefined;
+  return (data as Record<string, unknown>)[key];
 }
 
 /** Pure reducer for consumers that want CodeSpring's durable event semantics with custom UI. */
@@ -241,11 +273,56 @@ export function reduceAgentMessages(events: readonly AgentEvent[]): AgentChatMes
   return [...messages.values()].sort((left, right) => left.eventId - right.eventId);
 }
 
+/** Pure reducer for durable server, MCP, and client tool activity. */
+export function reduceAgentToolCalls(events: readonly AgentEvent[]): AgentToolCall[] {
+  const calls = new Map<string, AgentToolCall>();
+
+  for (const event of events) {
+    if (!event.turnId || !event.type.startsWith("tool.call.")) continue;
+    const name = stringField(event.data, "name") ?? "tool";
+    const callId = stringField(event.data, "toolCallId") ?? `${event.turnId}:${event.attempt}:${name}`;
+    const current = calls.get(callId);
+    const status: AgentToolCallStatus =
+      event.type === "tool.call.completed"
+        ? "completed"
+        : event.type === "tool.call.failed"
+          ? "failed"
+          : event.type === "tool.call.approval_required"
+            ? "approval_required"
+            : event.type === "tool.call.started"
+              ? "running"
+              : "proposed";
+
+    calls.set(callId, {
+      id: callId,
+      turnId: event.turnId,
+      name,
+      label: stringField(event.data, "label") ?? current?.label ?? name,
+      status,
+      ...(unknownField(event.data, "input") === undefined
+        ? current?.input === undefined
+          ? {}
+          : { input: current.input }
+        : { input: unknownField(event.data, "input") }),
+      ...(unknownField(event.data, "output") === undefined
+        ? current?.output === undefined
+          ? {}
+          : { output: current.output }
+        : { output: unknownField(event.data, "output") }),
+      createdAt: current?.createdAt ?? event.createdAt,
+      eventId: event.id,
+    });
+  }
+
+  return [...calls.values()].sort((left, right) => left.eventId - right.eventId);
+}
+
 interface SessionState {
   status: "idle" | "loading" | "ready" | "error";
   snapshot: SessionSnapshot | null;
   events: AgentEvent[];
   messages: AgentChatMessage[];
+  toolCalls: AgentToolCall[];
   error: Error | null;
 }
 
@@ -254,6 +331,7 @@ const initialSessionState: SessionState = {
   snapshot: null,
   events: [],
   messages: [],
+  toolCalls: [],
   error: null,
 };
 
@@ -325,6 +403,7 @@ class SessionStore {
         snapshot,
         events,
         messages: reduceAgentMessages(events),
+        toolCalls: reduceAgentToolCalls(events),
         error: null,
       });
       this.scheduleRefresh();
@@ -384,6 +463,10 @@ export function useAgentMessages(sessionId: string): AgentChatMessage[] {
   return useAgentSession(sessionId).messages;
 }
 
+export function useAgentToolCalls(sessionId: string): AgentToolCall[] {
+  return useAgentSession(sessionId).toolCalls;
+}
+
 interface StyledProps {
   className?: string;
   style?: CSSProperties;
@@ -430,18 +513,139 @@ export function AgentMessage({ message, className, style, theme, copy }: AgentMe
   );
 }
 
+export interface AgentToolCallProps extends StyledProps {
+  toolCall: AgentToolCall;
+  theme?: Partial<AgentTheme>;
+  copy?: Partial<AgentCopy>;
+}
+
+function formatToolPayload(payload: unknown): string {
+  if (typeof payload === "string") return payload;
+  try {
+    return JSON.stringify(payload, null, 2);
+  } catch {
+    return String(payload);
+  }
+}
+
+export function AgentToolCall({ toolCall, className, style, theme, copy }: AgentToolCallProps) {
+  const context = useAgentContext();
+  const colors = { ...context.theme, ...theme };
+  const labels = { ...context.copy, ...copy };
+  const statusLabel =
+    toolCall.status === "completed"
+      ? labels.toolCompleted
+      : toolCall.status === "failed"
+        ? labels.toolFailed
+        : toolCall.status === "approval_required"
+          ? labels.toolApprovalRequired
+          : labels.toolRunning;
+  const glyph =
+    toolCall.status === "completed"
+      ? "✓"
+      : toolCall.status === "failed"
+        ? "!"
+        : toolCall.status === "approval_required"
+          ? "?"
+          : "·";
+  const hasDetails = toolCall.input !== undefined || toolCall.output !== undefined;
+
+  return (
+    <details
+      className={className}
+      aria-label={`${toolCall.label}: ${statusLabel}`}
+      style={{
+        color: colors.inkSecondary,
+        background: colors.well,
+        border: `1px solid ${colors.hairline}`,
+        borderRadius: Math.max(10, colors.radius - 2),
+        fontSize: 13,
+        ...style,
+      }}
+    >
+      <summary
+        style={{
+          display: "flex",
+          minHeight: 42,
+          alignItems: "center",
+          gap: 9,
+          padding: "0 12px",
+          cursor: hasDetails ? "pointer" : "default",
+          listStyle: "none",
+        }}
+      >
+        <span
+          aria-hidden="true"
+          style={{
+            display: "grid",
+            width: 19,
+            height: 19,
+            placeItems: "center",
+            color: toolCall.status === "failed" ? colors.danger : colors.ink,
+            background: colors.surface,
+            border: `1px solid ${colors.hairline}`,
+            borderRadius: 6,
+            fontSize: 11,
+            fontWeight: 700,
+          }}
+        >
+          {glyph}
+        </span>
+        <span style={{ flex: 1, color: colors.ink, fontWeight: 550 }}>{toolCall.label}</span>
+        <span>{statusLabel}</span>
+        {hasDetails ? <span aria-hidden="true">›</span> : null}
+      </summary>
+      {hasDetails ? (
+        <div
+          style={{
+            display: "grid",
+            gap: 10,
+            padding: "0 12px 12px 40px",
+            borderTop: `1px solid ${colors.hairline}`,
+          }}
+        >
+          {toolCall.input !== undefined ? (
+            <div style={{ paddingTop: 10 }}>
+              <div style={{ marginBottom: 4, fontSize: 11, fontWeight: 650, textTransform: "uppercase" }}>
+                Input
+              </div>
+              <pre style={{ margin: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                {formatToolPayload(toolCall.input)}
+              </pre>
+            </div>
+          ) : null}
+          {toolCall.output !== undefined ? (
+            <div>
+              <div style={{ marginBottom: 4, fontSize: 11, fontWeight: 650, textTransform: "uppercase" }}>
+                Output
+              </div>
+              <pre style={{ margin: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                {formatToolPayload(toolCall.output)}
+              </pre>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </details>
+  );
+}
+
 export interface AgentMessageListProps extends StyledProps {
   messages: readonly AgentChatMessage[];
+  toolCalls?: readonly AgentToolCall[];
   isWorking?: boolean;
   renderMessage?: (message: AgentChatMessage) => ReactNode;
+  renderToolCall?: (toolCall: AgentToolCall) => ReactNode;
   theme?: Partial<AgentTheme>;
   copy?: Partial<AgentCopy>;
 }
 
 export function AgentMessageList({
   messages,
+  toolCalls = [],
   isWorking = false,
   renderMessage,
+  renderToolCall,
   className,
   style,
   theme,
@@ -451,10 +655,14 @@ export function AgentMessageList({
   const colors = { ...context.theme, ...theme };
   const labels = { ...context.copy, ...copy };
   const end = useRef<HTMLDivElement>(null);
+  const transcript = [
+    ...messages.map((message) => ({ type: "message" as const, item: message })),
+    ...toolCalls.map((toolCall) => ({ type: "tool" as const, item: toolCall })),
+  ].sort((left, right) => left.item.eventId - right.item.eventId);
 
   useEffect(() => {
     end.current?.scrollIntoView({ block: "end" });
-  }, [messages, isWorking]);
+  }, [messages, toolCalls, isWorking]);
 
   return (
     <div
@@ -470,16 +678,23 @@ export function AgentMessageList({
         ...style,
       }}
     >
-      {messages.length === 0 && !isWorking ? (
+      {transcript.length === 0 && !isWorking ? (
         <div style={{ margin: "auto", color: colors.inkSecondary, fontSize: 14 }}>{labels.empty}</div>
       ) : null}
-      {messages.map((message) =>
-        renderMessage ? (
-          <div key={message.id}>{renderMessage(message)}</div>
+      {transcript.map((row) => {
+        if (row.type === "tool") {
+          return renderToolCall ? (
+            <div key={`tool:${row.item.id}`}>{renderToolCall(row.item)}</div>
+          ) : (
+            <AgentToolCall key={`tool:${row.item.id}`} toolCall={row.item} theme={colors} copy={labels} />
+          );
+        }
+        return renderMessage ? (
+          <div key={`message:${row.item.id}`}>{renderMessage(row.item)}</div>
         ) : (
-          <AgentMessage key={message.id} message={message} theme={colors} copy={labels} />
-        ),
-      )}
+          <AgentMessage key={`message:${row.item.id}`} message={row.item} theme={colors} copy={labels} />
+        );
+      })}
       {isWorking && !messages.some((message) => message.status === "streaming") ? (
         <div style={{ color: colors.inkSecondary, fontSize: 14 }}>{labels.thinking}</div>
       ) : null}
@@ -589,6 +804,7 @@ export interface AgentChatProps extends StyledProps {
   theme?: Partial<AgentTheme>;
   copy?: Partial<AgentCopy>;
   renderMessage?: (message: AgentChatMessage) => ReactNode;
+  renderToolCall?: (toolCall: AgentToolCall) => ReactNode;
   onError?: (error: Error) => void;
 }
 
@@ -600,6 +816,7 @@ export function AgentChat({
   theme,
   copy,
   renderMessage,
+  renderToolCall,
   onError,
 }: AgentChatProps) {
   const context = useAgentContext();
@@ -686,8 +903,10 @@ export function AgentChat({
         ) : (
           <AgentMessageList
             messages={session.messages}
+            toolCalls={session.toolCalls}
             isWorking={isWorking}
             {...(renderMessage === undefined ? {} : { renderMessage })}
+            {...(renderToolCall === undefined ? {} : { renderToolCall })}
             theme={colors}
             copy={labels}
           />

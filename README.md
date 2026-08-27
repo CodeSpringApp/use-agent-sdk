@@ -15,7 +15,7 @@ const support = createAgent({
   id: "support",
   revision: "7",
   instructions: "Help the customer clearly and safely.",
-  model: "support-primary",
+  model: "production-default",
   skills: [{ id: "returns", version: "1" }],
 });
 
@@ -28,40 +28,54 @@ const session = await agents.sessions.create(support);
 await session.submit("Where is my order?", { idempotencyKey: crypto.randomUUID() });
 ```
 
-`support-primary` is a tenant-scoped model profile, not a provider model name.
-The control plane maps it to an encrypted BYOK connection and provider policy.
-Publishing resolves the profile to an immutable policy revision while credential
-rotation remains independent. Provider names and keys therefore stay out of
-application source.
+`production-default` is a reusable, tenant-scoped virtual model profile—not a
+provider model name and not an agent/use-case configuration. Multiple agents can
+reference it. The control plane maps it to encrypted BYOK connections, provider
+candidates, fallback, budgets, and policy. Publishing resolves the profile to an
+immutable policy revision while credential rotation remains independent.
 
 API keys are server-only. Do not pass the server client into a browser bundle.
 
 ## Plug-and-play React UI
 
 ```tsx
-import { AgentChat, AgentProvider } from "@codespring-app/use-agent/react";
+import {
+  AgentChat,
+  AgentProvider,
+  createAgentAppearance,
+  useAgentConnection,
+} from "@codespring-app/use-agent/react";
 
-export function App() {
+const acmeAppearance = createAgentAppearance({
+  theme: { accent: "#2856D8" },
+  copy: { placeholder: "Ask us anything" },
+});
+
+export function App({ sessionId }: { sessionId: string }) {
+  const client = useAgentConnection({
+    endpoint: "https://api.agents.codespring.app",
+    clientTokenEndpoint: "/api/agents/token",
+  });
+
   return (
-    <AgentProvider
-      connection={{
-        endpoint: "https://api.agents.codespring.app",
-        getClientToken: () =>
-          fetch("/api/agents/token", { method: "POST" }).then((response) => response.text()),
-      }}
-      theme={{ accent: "#2856d8", radius: 18 }}
-      copy={{ title: "Acme support", placeholder: "Ask us anything" }}
-    >
-      <AgentChat sessionId="..." />
+    <AgentProvider client={client} appearance={acmeAppearance}>
+      <AgentChat sessionId={sessionId} />
     </AgentProvider>
   );
 }
 ```
 
-The default components are inspired by Ferb: assistant replies are readable
-document content, user messages are quiet right-aligned cards, tool calls are
-durable inspectable activity rows, and the composer stays compact. `theme` and
-`copy` are typed and can be set at the provider or component level.
+`/api/agents/token` returns `{ token, expiresAt }`. The SDK caches it in memory,
+deduplicates concurrent refreshes, refreshes before expiry, and retries once
+after a 401. It never persists the token. `createAgentAppearance` produces a
+frozen, reusable preset so unrelated renders do not invalidate theme/copy
+consumers; use `useMemo` when appearance must be dynamic.
+
+The defaults implement Ferb's Paper experience: assistant replies are document
+content on an edge-to-edge canvas, user messages are quiet trailing wells, tool
+calls are compact inspectable activity rows, and the live-edge composer has no
+shadow. `paperLightTheme`, `paperDarkTheme`, theme/copy overrides, slots, and
+render functions are available for customization.
 
 ## Headless React
 
@@ -81,6 +95,6 @@ before using this flow in production.
 bun run showcase
 ```
 
-Open `http://127.0.0.1:5173` for the default UI or append `?theme=retail` for
-the themed example. The showcase uses mocked durable events and makes no
+Open `http://127.0.0.1:5173` for the Paper UI or append `?theme=dark` for
+the dark palette. The showcase uses mocked durable events and makes no
 external API calls.

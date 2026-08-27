@@ -23,17 +23,20 @@ import type {
 
 export interface AgentTheme {
   canvas: string;
-  surface: string;
-  well: string;
   ink: string;
   inkSecondary: string;
+  inkTertiary: string;
+  well: string;
   hairline: string;
+  statusGood: string;
+  statusBad: string;
+  statusWarn: string;
   accent: string;
-  accentText: string;
-  danger: string;
   fontFamily: string;
-  radius: number;
+  monoFamily: string;
   contentMaxWidth: number;
+  containerRadius: number;
+  wellRadius: number;
 }
 
 export interface AgentCopy {
@@ -54,22 +57,39 @@ export interface AgentCopy {
   toolApprovalRequired: string;
 }
 
-const defaultTheme: AgentTheme = {
-  canvas: "#f7f7f5",
-  surface: "#ffffff",
-  well: "#efefec",
-  ink: "#191918",
-  inkSecondary: "#6b6b66",
-  hairline: "rgba(25, 25, 24, 0.12)",
-  accent: "#191918",
-  accentText: "#ffffff",
-  danger: "#b42318",
+export const paperLightTheme: Readonly<AgentTheme> = Object.freeze({
+  canvas: "#FFFFFF",
+  ink: "#141414",
+  inkSecondary: "#68686D",
+  inkTertiary: "#9B9BA0",
+  well: "#F5F5F8",
+  hairline: "#E4E4E8",
+  statusGood: "#0E7B3F",
+  statusBad: "#C33530",
+  statusWarn: "#A06C02",
+  accent: "#3B6AC5",
   fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-  radius: 14,
+  monoFamily: "SFMono-Regular, SF Mono, ui-monospace, Menlo, Consolas, monospace",
   contentMaxWidth: 760,
-};
+  containerRadius: 10,
+  wellRadius: 8,
+});
 
-const defaultCopy: AgentCopy = {
+export const paperDarkTheme: Readonly<AgentTheme> = Object.freeze({
+  ...paperLightTheme,
+  canvas: "#161618",
+  ink: "#ECECEC",
+  inkSecondary: "#98989D",
+  inkTertiary: "#66666B",
+  well: "#1D1D1F",
+  hairline: "#29292C",
+  statusGood: "#63C180",
+  statusBad: "#DF5048",
+  statusWarn: "#E3A648",
+  accent: "#87B1FD",
+});
+
+export const defaultAgentCopy: Readonly<AgentCopy> = Object.freeze({
   title: "Assistant",
   empty: "Start a conversation",
   loading: "Loading conversation…",
@@ -85,7 +105,32 @@ const defaultCopy: AgentCopy = {
   toolCompleted: "Completed",
   toolFailed: "Failed",
   toolApprovalRequired: "Approval required",
-};
+});
+
+export interface AgentAppearance {
+  readonly theme: Readonly<AgentTheme>;
+  readonly copy: Readonly<AgentCopy>;
+}
+
+export interface CreateAgentAppearanceOptions {
+  mode?: "light" | "dark";
+  theme?: Partial<AgentTheme>;
+  copy?: Partial<AgentCopy>;
+}
+
+export function createAgentAppearance({
+  mode = "light",
+  theme,
+  copy,
+}: CreateAgentAppearanceOptions = {}): AgentAppearance {
+  return Object.freeze({
+    theme: Object.freeze({ ...(mode === "dark" ? paperDarkTheme : paperLightTheme), ...theme }),
+    copy: Object.freeze({ ...defaultAgentCopy, ...copy }),
+  });
+}
+
+export const paperAppearance = createAgentAppearance();
+export const paperDarkAppearance = createAgentAppearance({ mode: "dark" });
 
 interface AgentContextValue {
   client: AgentClient;
@@ -97,32 +142,54 @@ interface AgentContextValue {
 const AgentContext = createContext<AgentContextValue | null>(null);
 
 export interface AgentProviderProps extends PropsWithChildren {
-  client?: AgentClient;
-  connection?: BrowserAgentClientOptions;
+  client: AgentClient;
+  appearance?: AgentAppearance;
   theme?: Partial<AgentTheme>;
   copy?: Partial<AgentCopy>;
 }
 
-export function AgentProvider({ client, connection, theme, copy, children }: AgentProviderProps) {
-  const resolvedClient = useMemo(() => {
-    if (client && connection) throw new TypeError("AgentProvider accepts client or connection, not both");
-    if (client) return client;
-    if (connection) return createBrowserClient(connection);
-    throw new TypeError("AgentProvider requires client or connection");
-  }, [client, connection]);
-  const stores = useMemo(() => new Map<string, SessionStore>(), [resolvedClient]);
+function shallowEqual(left: Record<string, unknown>, right: Record<string, unknown>): boolean {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return leftKeys.length === rightKeys.length && leftKeys.every((key) => left[key] === right[key]);
+}
+
+function useStablePartial<T extends Record<string, unknown>>(value: T | undefined): T | undefined {
+  const stable = useRef(value);
+  if (!shallowEqual(stable.current ?? {}, value ?? {})) stable.current = value;
+  return stable.current;
+}
+
+export function AgentProvider({
+  client,
+  appearance = paperAppearance,
+  theme,
+  copy,
+  children,
+}: AgentProviderProps) {
+  const stableTheme = useStablePartial(theme);
+  const stableCopy = useStablePartial(copy);
+  const resolvedTheme = useMemo(
+    () => Object.freeze({ ...appearance.theme, ...stableTheme }),
+    [appearance.theme, stableTheme],
+  );
+  const resolvedCopy = useMemo(
+    () => Object.freeze({ ...appearance.copy, ...stableCopy }),
+    [appearance.copy, stableCopy],
+  );
+  const stores = useMemo(() => new Map<string, SessionStore>(), [client]);
   useEffect(() => () => {
     for (const store of stores.values()) store.dispose();
     stores.clear();
   }, [stores]);
   const value = useMemo(
     () => ({
-      client: resolvedClient,
-      theme: { ...defaultTheme, ...theme },
-      copy: { ...defaultCopy, ...copy },
+      client,
+      theme: resolvedTheme,
+      copy: resolvedCopy,
       stores,
     }),
-    [resolvedClient, stores, theme, copy],
+    [client, resolvedTheme, resolvedCopy, stores],
   );
   return createElement(AgentContext.Provider, { value }, children);
 }
@@ -135,6 +202,63 @@ function useAgentContext(): AgentContextValue {
 
 export function useAgentClient(): AgentClient {
   return useAgentContext().client;
+}
+
+export interface UseAgentConnectionOptions {
+  endpoint: string;
+  clientTokenEndpoint: string;
+  fetch?: BrowserAgentClientOptions["fetch"];
+  credentials?: RequestCredentials;
+  clientTokenTtlMs?: number;
+  refreshSkewMs?: number;
+}
+
+/** Creates one browser client and owns its in-memory, deduplicated client-token cache. */
+export function useAgentConnection({
+  endpoint,
+  clientTokenEndpoint,
+  fetch: fetchImplementation,
+  credentials = "same-origin",
+  clientTokenTtlMs,
+  refreshSkewMs,
+}: UseAgentConnectionOptions): AgentClient {
+  return useMemo(
+    () =>
+      createBrowserClient({
+        endpoint,
+        getClientToken: async () => {
+          const request = fetchImplementation ?? globalThis.fetch;
+          if (!request) throw new TypeError("A fetch implementation is required");
+          const response = await request(clientTokenEndpoint, {
+            method: "POST",
+            credentials,
+            headers: { Accept: "application/json" },
+          });
+          if (!response.ok) throw new Error(`Client token request failed with ${response.status}`);
+          const contentType = response.headers.get("content-type") ?? "";
+          if (!contentType.includes("application/json")) return response.text();
+          const body = (await response.json()) as { token?: unknown; expiresAt?: unknown };
+          if (typeof body.token !== "string") throw new Error("Client token response is missing token");
+          return {
+            token: body.token,
+            ...(typeof body.expiresAt === "string" || typeof body.expiresAt === "number"
+              ? { expiresAt: body.expiresAt }
+              : {}),
+          };
+        },
+        ...(fetchImplementation === undefined ? {} : { fetch: fetchImplementation }),
+        ...(clientTokenTtlMs === undefined ? {} : { clientTokenTtlMs }),
+        ...(refreshSkewMs === undefined ? {} : { refreshSkewMs }),
+      }),
+    [
+      endpoint,
+      clientTokenEndpoint,
+      fetchImplementation,
+      credentials,
+      clientTokenTtlMs,
+      refreshSkewMs,
+    ],
+  );
 }
 
 export function useAgentTheme(): AgentTheme {
@@ -169,6 +293,7 @@ export interface AgentToolCall {
   turnId: string;
   name: string;
   label: string;
+  summary?: string;
   status: AgentToolCallStatus;
   input?: unknown;
   output?: unknown;
@@ -279,9 +404,11 @@ export function reduceAgentToolCalls(events: readonly AgentEvent[]): AgentToolCa
 
   for (const event of events) {
     if (!event.turnId || !event.type.startsWith("tool.call.")) continue;
-    const name = stringField(event.data, "name") ?? "tool";
-    const callId = stringField(event.data, "toolCallId") ?? `${event.turnId}:${event.attempt}:${name}`;
+    const eventName = stringField(event.data, "name");
+    const callId = stringField(event.data, "toolCallId") ?? `${event.turnId}:${event.attempt}:${eventName ?? "tool"}`;
     const current = calls.get(callId);
+    const name = eventName ?? current?.name ?? "tool";
+    const summary = stringField(event.data, "summary");
     const status: AgentToolCallStatus =
       event.type === "tool.call.completed"
         ? "completed"
@@ -298,6 +425,11 @@ export function reduceAgentToolCalls(events: readonly AgentEvent[]): AgentToolCa
       turnId: event.turnId,
       name,
       label: stringField(event.data, "label") ?? current?.label ?? name,
+      ...(summary === undefined
+        ? current?.summary === undefined
+          ? {}
+          : { summary: current.summary }
+        : { summary }),
       status,
       ...(unknownField(event.data, "input") === undefined
         ? current?.input === undefined
@@ -478,6 +610,182 @@ export interface AgentMessageProps extends StyledProps {
   copy?: Partial<AgentCopy>;
 }
 
+function inlineMarkdown(text: string, colors: AgentTheme): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const pattern = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^\s)]+\))/gu;
+  let cursor = 0;
+  for (const match of text.matchAll(pattern)) {
+    const index = match.index ?? 0;
+    if (index > cursor) nodes.push(text.slice(cursor, index));
+    const token = match[0];
+    if (token.startsWith("**")) {
+      nodes.push(<strong key={`${index}:strong`} style={{ fontWeight: 650 }}>{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith("`")) {
+      nodes.push(
+        <code
+          key={`${index}:code`}
+          style={{
+            padding: "1px 4px",
+            borderRadius: 4,
+            background: colors.well,
+            fontFamily: colors.monoFamily,
+            fontSize: 12,
+          }}
+        >
+          {token.slice(1, -1)}
+        </code>,
+      );
+    } else {
+      const parts = /^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/u.exec(token);
+      nodes.push(
+        <a
+          key={`${index}:link`}
+          href={parts?.[2]}
+          target="_blank"
+          rel="noreferrer"
+          style={{ color: colors.accent, textDecorationThickness: 1, textUnderlineOffset: 2 }}
+        >
+          {parts?.[1]}
+        </a>,
+      );
+    }
+    cursor = index + token.length;
+  }
+  if (cursor < text.length) nodes.push(text.slice(cursor));
+  return nodes;
+}
+
+function AgentMarkdown({ content, colors }: { content: string; colors: AgentTheme }) {
+  const lines = content.split("\n");
+  const blocks: ReactNode[] = [];
+  let index = 0;
+  while (index < lines.length) {
+    const line = lines[index] ?? "";
+    if (line.startsWith("```")) {
+      const language = line.slice(3).trim();
+      const code: string[] = [];
+      index += 1;
+      while (index < lines.length && !lines[index]?.startsWith("```")) {
+        code.push(lines[index] ?? "");
+        index += 1;
+      }
+      if (index < lines.length) index += 1;
+      blocks.push(
+        <div key={`code:${index}`} style={{ position: "relative", margin: "8px 0" }}>
+          {language ? (
+            <span
+              style={{
+                position: "absolute",
+                top: 7,
+                right: 9,
+                color: colors.inkTertiary,
+                fontFamily: colors.monoFamily,
+                fontSize: 10,
+              }}
+            >
+              {language}
+            </span>
+          ) : null}
+          <pre
+            style={{
+              margin: 0,
+              padding: language ? "25px 12px 11px" : "11px 12px",
+              overflowX: "auto",
+              borderRadius: colors.wellRadius,
+              background: colors.well,
+              fontFamily: colors.monoFamily,
+              fontSize: 12,
+              lineHeight: 1.5,
+            }}
+          >
+            <code>{code.join("\n")}</code>
+          </pre>
+        </div>,
+      );
+      continue;
+    }
+    const heading = /^(#{1,3})\s+(.+)$/u.exec(line);
+    if (heading) {
+      const level = heading[1]?.length ?? 3;
+      blocks.push(
+        <div
+          key={`heading:${index}`}
+          role="heading"
+          aria-level={level}
+          style={{
+            margin: index === 0 ? "0 0 6px" : "14px 0 6px",
+            fontSize: level === 1 ? 15 : 13,
+            fontWeight: level < 3 ? 650 : 550,
+            lineHeight: 1.35,
+          }}
+        >
+          {inlineMarkdown(heading[2] ?? "", colors)}
+        </div>,
+      );
+      index += 1;
+      continue;
+    }
+    if (/^[-*]\s+/u.test(line)) {
+      const items: string[] = [];
+      while (index < lines.length && /^[-*]\s+/u.test(lines[index] ?? "")) {
+        items.push((lines[index] ?? "").replace(/^[-*]\s+/u, ""));
+        index += 1;
+      }
+      blocks.push(
+        <ul key={`list:${index}`} style={{ margin: "6px 0", paddingLeft: 19 }}>
+          {items.map((item, itemIndex) => (
+            <li key={itemIndex} style={{ margin: "3px 0", paddingLeft: 2 }}>
+              {inlineMarkdown(item, colors)}
+            </li>
+          ))}
+        </ul>,
+      );
+      continue;
+    }
+    if (line.startsWith("> ")) {
+      const quote: string[] = [];
+      while (index < lines.length && (lines[index] ?? "").startsWith("> ")) {
+        quote.push((lines[index] ?? "").slice(2));
+        index += 1;
+      }
+      blocks.push(
+        <blockquote
+          key={`quote:${index}`}
+          style={{
+            margin: "8px 0",
+            paddingLeft: 10,
+            borderLeft: `2px solid ${colors.hairline}`,
+            color: colors.inkSecondary,
+          }}
+        >
+          {inlineMarkdown(quote.join("\n"), colors)}
+        </blockquote>,
+      );
+      continue;
+    }
+    if (!line.trim()) {
+      index += 1;
+      continue;
+    }
+    const paragraph = [line];
+    index += 1;
+    while (
+      index < lines.length &&
+      (lines[index] ?? "").trim() &&
+      !/^(#{1,3})\s+|^```|^[-*]\s+|^> /u.test(lines[index] ?? "")
+    ) {
+      paragraph.push(lines[index] ?? "");
+      index += 1;
+    }
+    blocks.push(
+      <p key={`paragraph:${index}`} style={{ margin: "0 0 9px", whiteSpace: "pre-wrap" }}>
+        {inlineMarkdown(paragraph.join("\n"), colors)}
+      </p>,
+    );
+  }
+  return <>{blocks}</>;
+}
+
 export function AgentMessage({ message, className, style, theme, copy }: AgentMessageProps) {
   const context = useAgentContext();
   const colors = { ...context.theme, ...theme };
@@ -496,19 +804,19 @@ export function AgentMessage({ message, className, style, theme, copy }: AgentMe
       aria-label={isUser ? labels.userLabel : labels.assistantLabel}
       style={{
         alignSelf: isUser ? "flex-end" : "stretch",
-        maxWidth: isUser ? "82%" : "100%",
-        color: message.status === "failed" ? colors.danger : colors.ink,
+        maxWidth: isUser ? "min(82%, 620px)" : "100%",
+        color: message.status === "failed" ? colors.statusBad : colors.ink,
         background: isUser ? colors.well : "transparent",
-        borderRadius: isUser ? colors.radius : 0,
-        padding: isUser ? "9px 12px" : "4px 0",
-        fontSize: 15,
-        lineHeight: 1.55,
-        whiteSpace: "pre-wrap",
+        borderRadius: isUser ? colors.containerRadius : 0,
+        padding: isUser ? "8px 12px" : 0,
+        fontSize: 13,
+        lineHeight: 1.52,
+        whiteSpace: isUser ? "pre-wrap" : "normal",
         overflowWrap: "anywhere",
         ...style,
       }}
     >
-      {message.content || fallback}
+      {message.content ? (isUser ? message.content : <AgentMarkdown content={message.content} colors={colors} />) : fallback}
     </article>
   );
 }
@@ -528,10 +836,80 @@ function formatToolPayload(payload: unknown): string {
   }
 }
 
+function humanizeToolName(name: string): string {
+  const action = name.split(/[./:]/u).at(-1) ?? name;
+  const words = action.replace(/([a-z])([A-Z])/gu, "$1 $2").replace(/[_-]+/gu, " ").trim();
+  return words ? words[0]?.toUpperCase() + words.slice(1) : "Use tool";
+}
+
+function deriveToolSummary(input: unknown): string | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  const entry = Object.entries(input as Record<string, unknown>).find(
+    ([, value]) => typeof value === "string" || typeof value === "number",
+  );
+  if (!entry) return undefined;
+  const value = String(entry[1]);
+  return value.length > 42 ? `${value.slice(0, 39)}…` : value;
+}
+
+function ToolActionGlyph({ name, color }: { name: string; color: string }) {
+  const normalized = name.toLowerCase();
+  if (normalized.includes("search") || normalized.includes("lookup") || normalized.includes("find")) {
+    return (
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+        <circle cx="5" cy="5" r="3.25" stroke={color} strokeWidth="1.2" />
+        <path d="m7.5 7.5 2.3 2.3" stroke={color} strokeWidth="1.2" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (normalized.includes("read") || normalized.includes("file") || normalized.includes("document")) {
+    return (
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+        <path d="M3 1.5h4l2 2V10.5H3z" stroke={color} strokeWidth="1.1" strokeLinejoin="round" />
+        <path d="M7 1.8V4h2.1" stroke={color} strokeWidth="1.1" />
+      </svg>
+    );
+  }
+  return (
+    <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+      <path d="M4.2 2.2 2.1 6l2.1 3.8M7.8 2.2 9.9 6 7.8 9.8" stroke={color} strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function StatusGlyph({ status, colors }: { status: AgentToolCallStatus; colors: AgentTheme }) {
+  if (status === "completed") {
+    return <span aria-hidden="true" style={{ color: colors.statusGood, fontSize: 12 }}>✓</span>;
+  }
+  if (status === "failed") {
+    return <span aria-hidden="true" style={{ color: colors.statusBad, fontSize: 13 }}>×</span>;
+  }
+  if (status === "approval_required") {
+    return <span aria-hidden="true" style={{ color: colors.statusWarn, fontSize: 11 }}>?</span>;
+  }
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        width: 10,
+        height: 10,
+        border: `1.5px solid ${colors.hairline}`,
+        borderTopColor: colors.inkSecondary,
+        borderRadius: "50%",
+      }}
+    />
+  );
+}
+
 export function AgentToolCall({ toolCall, className, style, theme, copy }: AgentToolCallProps) {
   const context = useAgentContext();
   const colors = { ...context.theme, ...theme };
   const labels = { ...context.copy, ...copy };
+  const [expanded, setExpanded] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const hasDetails = toolCall.input !== undefined || toolCall.output !== undefined;
+  const title = toolCall.label === toolCall.name ? humanizeToolName(toolCall.name) : toolCall.label;
+  const summary = toolCall.summary ?? deriveToolSummary(toolCall.input);
   const statusLabel =
     toolCall.status === "completed"
       ? labels.toolCompleted
@@ -540,93 +918,100 @@ export function AgentToolCall({ toolCall, className, style, theme, copy }: Agent
         : toolCall.status === "approval_required"
           ? labels.toolApprovalRequired
           : labels.toolRunning;
-  const glyph =
-    toolCall.status === "completed"
-      ? "✓"
-      : toolCall.status === "failed"
-        ? "!"
-        : toolCall.status === "approval_required"
-          ? "?"
-          : "·";
-  const hasDetails = toolCall.input !== undefined || toolCall.output !== undefined;
 
   return (
-    <details
-      className={className}
-      aria-label={`${toolCall.label}: ${statusLabel}`}
-      style={{
-        color: colors.inkSecondary,
-        background: colors.well,
-        border: `1px solid ${colors.hairline}`,
-        borderRadius: Math.max(10, colors.radius - 2),
-        fontSize: 13,
-        ...style,
-      }}
-    >
-      <summary
+    <div className={className} style={{ color: colors.inkSecondary, ...style }}>
+      <button
+        type="button"
+        aria-expanded={hasDetails ? expanded : undefined}
+        aria-label={`${title}: ${statusLabel}`}
+        disabled={!hasDetails}
+        onClick={() => hasDetails && setExpanded((current) => !current)}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        onFocus={() => setHovered(true)}
+        onBlur={() => setHovered(false)}
         style={{
           display: "flex",
-          minHeight: 42,
+          width: "100%",
+          minHeight: 28,
           alignItems: "center",
-          gap: 9,
-          padding: "0 12px",
+          gap: 7,
+          padding: "0 4px",
+          border: 0,
+          borderRadius: 6,
+          color: "inherit",
+          background: hovered ? colors.well : "transparent",
           cursor: hasDetails ? "pointer" : "default",
-          listStyle: "none",
+          font: "inherit",
+          textAlign: "left",
         }}
       >
-        <span
-          aria-hidden="true"
-          style={{
-            display: "grid",
-            width: 19,
-            height: 19,
-            placeItems: "center",
-            color: toolCall.status === "failed" ? colors.danger : colors.ink,
-            background: colors.surface,
-            border: `1px solid ${colors.hairline}`,
-            borderRadius: 6,
-            fontSize: 11,
-            fontWeight: 700,
-          }}
-        >
-          {glyph}
+        <span aria-hidden="true" style={{ display: "grid", width: 12, placeItems: "center", flex: "0 0 12px" }}>
+          {hovered && hasDetails ? (
+            <span style={{ fontSize: 14, lineHeight: 1, transform: expanded ? "rotate(90deg)" : undefined }}>›</span>
+          ) : (
+            <ToolActionGlyph name={toolCall.name} color={colors.inkSecondary} />
+          )}
         </span>
-        <span style={{ flex: 1, color: colors.ink, fontWeight: 550 }}>{toolCall.label}</span>
-        <span>{statusLabel}</span>
-        {hasDetails ? <span aria-hidden="true">›</span> : null}
-      </summary>
-      {hasDetails ? (
+        <span style={{ fontSize: 11, fontWeight: 550, lineHeight: 1.2 }}>{title}</span>
+        {summary ? (
+          <span
+            style={{
+              minWidth: 0,
+              maxWidth: "55%",
+              overflow: "hidden",
+              padding: "3px 6px",
+              borderRadius: 5,
+              background: colors.well,
+              color: colors.inkSecondary,
+              fontSize: 11,
+              lineHeight: 1,
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {summary}
+          </span>
+        ) : null}
+        <span style={{ flex: 1 }} />
+        <span style={{ display: "grid", width: 16, minHeight: 24, placeItems: "center" }}>
+          <StatusGlyph status={toolCall.status} colors={colors} />
+        </span>
+      </button>
+      {expanded && hasDetails ? (
         <div
           style={{
             display: "grid",
-            gap: 10,
-            padding: "0 12px 12px 40px",
-            borderTop: `1px solid ${colors.hairline}`,
+            gap: 8,
+            margin: "3px 0 7px 9px",
+            padding: "3px 0 3px 14px",
+            borderLeft: `1px solid ${colors.hairline}`,
+            color: colors.inkSecondary,
+            fontFamily: colors.monoFamily,
+            fontSize: 11,
+            lineHeight: 1.45,
           }}
         >
           {toolCall.input !== undefined ? (
-            <div style={{ paddingTop: 10 }}>
-              <div style={{ marginBottom: 4, fontSize: 11, fontWeight: 650, textTransform: "uppercase" }}>
-                Input
-              </div>
-              <pre style={{ margin: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+            <div>
+              <div style={{ marginBottom: 2, color: colors.inkTertiary, fontFamily: colors.fontFamily }}>Input</div>
+              <pre style={{ margin: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere", font: "inherit" }}>
                 {formatToolPayload(toolCall.input)}
               </pre>
             </div>
           ) : null}
           {toolCall.output !== undefined ? (
             <div>
-              <div style={{ marginBottom: 4, fontSize: 11, fontWeight: 650, textTransform: "uppercase" }}>
-                Output
-              </div>
-              <pre style={{ margin: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+              <div style={{ marginBottom: 2, color: colors.inkTertiary, fontFamily: colors.fontFamily }}>Output</div>
+              <pre style={{ margin: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere", font: "inherit" }}>
                 {formatToolPayload(toolCall.output)}
               </pre>
             </div>
           ) : null}
         </div>
       ) : null}
-    </details>
+    </div>
   );
 }
 
@@ -655,31 +1040,41 @@ export function AgentMessageList({
   const colors = { ...context.theme, ...theme };
   const labels = { ...context.copy, ...copy };
   const end = useRef<HTMLDivElement>(null);
+  const scrollSurface = useRef<HTMLDivElement>(null);
+  const atLiveEdge = useRef(true);
   const transcript = [
     ...messages.map((message) => ({ type: "message" as const, item: message })),
     ...toolCalls.map((toolCall) => ({ type: "tool" as const, item: toolCall })),
   ].sort((left, right) => left.item.eventId - right.item.eventId);
 
   useEffect(() => {
-    end.current?.scrollIntoView({ block: "end" });
+    if (atLiveEdge.current) end.current?.scrollIntoView({ block: "end" });
   }, [messages, toolCalls, isWorking]);
 
   return (
     <div
       className={className}
       aria-live="polite"
+      ref={scrollSurface}
+      onScroll={() => {
+        const element = scrollSurface.current;
+        if (element) atLiveEdge.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48;
+      }}
       style={{
         display: "flex",
+        width: "100%",
+        maxWidth: colors.contentMaxWidth,
         flex: 1,
         flexDirection: "column",
-        gap: 18,
+        alignSelf: "center",
+        gap: 16,
         overflowY: "auto",
-        padding: "28px 24px 20px",
+        padding: "20px 24px 24px",
         ...style,
       }}
     >
       {transcript.length === 0 && !isWorking ? (
-        <div style={{ margin: "auto", color: colors.inkSecondary, fontSize: 14 }}>{labels.empty}</div>
+        <div style={{ margin: "auto", color: colors.inkSecondary, fontSize: 13 }}>{labels.empty}</div>
       ) : null}
       {transcript.map((row) => {
         if (row.type === "tool") {
@@ -696,7 +1091,13 @@ export function AgentMessageList({
         );
       })}
       {isWorking && !messages.some((message) => message.status === "streaming") ? (
-        <div style={{ color: colors.inkSecondary, fontSize: 14 }}>{labels.thinking}</div>
+        <div
+          role="status"
+          style={{ display: "flex", alignItems: "center", gap: 7, color: colors.inkSecondary, fontSize: 11 }}
+        >
+          <span aria-hidden="true" style={{ color: colors.inkTertiary, fontSize: 10 }}>✦</span>
+          {labels.thinking}
+        </div>
       ) : null}
       <div ref={end} />
     </div>
@@ -709,6 +1110,9 @@ export interface AgentComposerProps extends StyledProps {
   onSubmit: () => void | Promise<void>;
   disabled?: boolean;
   error?: string | null;
+  leadingActions?: ReactNode;
+  trailingActions?: ReactNode;
+  onCancel?: () => void | Promise<void>;
   theme?: Partial<AgentTheme>;
   copy?: Partial<AgentCopy>;
 }
@@ -719,6 +1123,9 @@ export function AgentComposer({
   onSubmit,
   disabled = false,
   error,
+  leadingActions,
+  trailingActions,
+  onCancel,
   className,
   style,
   theme,
@@ -736,17 +1143,24 @@ export function AgentComposer({
   };
 
   return (
-    <div className={className} style={{ padding: "12px 24px 18px", ...style }}>
+    <div
+      className={className}
+      style={{
+        width: "100%",
+        maxWidth: colors.contentMaxWidth,
+        margin: "0 auto",
+        padding: "16px 24px 10px",
+        ...style,
+      }}
+    >
       <div
         style={{
-          display: "flex",
-          alignItems: "flex-end",
-          gap: 10,
-          padding: "11px 11px 11px 14px",
-          background: colors.surface,
-          border: `1px solid ${error ? colors.danger : colors.hairline}`,
-          borderRadius: colors.radius,
-          boxShadow: "0 10px 30px rgba(20, 20, 18, 0.07)",
+          display: "grid",
+          gap: 8,
+          padding: "12px 10px 10px 14px",
+          background: colors.well,
+          border: `1px solid ${error ? colors.statusBad : colors.hairline}`,
+          borderRadius: 14,
         }}
       >
         <textarea
@@ -759,47 +1173,65 @@ export function AgentComposer({
           onKeyDown={onKeyDown}
           style={{
             flex: 1,
-            minHeight: 24,
+            width: "100%",
+            minHeight: 22,
             maxHeight: 160,
             resize: "vertical",
             border: 0,
             outline: 0,
-            padding: "3px 0",
+            padding: 0,
             color: colors.ink,
             background: "transparent",
-            font: "inherit",
-            lineHeight: 1.5,
+            fontFamily: colors.fontFamily,
+            fontSize: 13,
+            lineHeight: 1.45,
           }}
         />
-        <button
-          type="button"
-          aria-label={labels.send}
-          title={labels.send}
-          disabled={disabled || !value.trim()}
-          onClick={() => void onSubmit()}
-          style={{
-            width: 32,
-            height: 32,
-            border: 0,
-            borderRadius: 10,
-            color: colors.accentText,
-            background: colors.accent,
-            cursor: disabled || !value.trim() ? "default" : "pointer",
-            opacity: disabled || !value.trim() ? 0.35 : 1,
-            fontSize: 18,
-            lineHeight: 1,
-          }}
-        >
-          ↑
-        </button>
+        <div style={{ display: "flex", minHeight: 28, alignItems: "center", gap: 7 }}>
+          {leadingActions}
+          <span style={{ flex: 1 }} />
+          {trailingActions}
+          <button
+            type="button"
+            aria-label={disabled && onCancel ? "Stop agent" : labels.send}
+            title={disabled && onCancel ? "Stop agent" : labels.send}
+            disabled={disabled ? !onCancel : !value.trim()}
+            onClick={() => void (disabled && onCancel ? onCancel() : onSubmit())}
+            style={{
+              display: "grid",
+              width: 26,
+              height: 26,
+              placeItems: "center",
+              padding: 0,
+              border: 0,
+              borderRadius: "50%",
+              color: colors.canvas,
+              background: disabled && !onCancel ? colors.inkTertiary : colors.ink,
+              cursor: disabled && !onCancel ? "default" : !disabled && !value.trim() ? "default" : "pointer",
+              opacity: !disabled && !value.trim() ? 0.38 : 1,
+            }}
+          >
+            {disabled && onCancel ? (
+              <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: 1, background: colors.canvas }} />
+            ) : (
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <path d="M6 9.5v-7M3.2 5.2 6 2.4l2.8 2.8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
+          </button>
+        </div>
       </div>
-      {error ? <div style={{ color: colors.danger, fontSize: 12, padding: "7px 4px 0" }}>{error}</div> : null}
+      {error ? <div style={{ color: colors.statusBad, fontSize: 11, padding: "7px 4px 0" }}>{error}</div> : null}
     </div>
   );
 }
 
 export interface AgentChatProps extends StyledProps {
   sessionId: string;
+  header?: ReactNode;
+  composerLeadingActions?: ReactNode;
+  composerTrailingActions?: ReactNode;
+  /** @deprecated Prefer the header slot; the default chat has no header. */
   title?: string;
   theme?: Partial<AgentTheme>;
   copy?: Partial<AgentCopy>;
@@ -810,6 +1242,9 @@ export interface AgentChatProps extends StyledProps {
 
 export function AgentChat({
   sessionId,
+  header,
+  composerLeadingActions,
+  composerTrailingActions,
   title,
   className,
   style,
@@ -828,6 +1263,9 @@ export function AgentChat({
   const isWorking =
     session.snapshot?.turns.some((turn) => turn.status === "queued" || turn.status === "running") ??
     false;
+  const activeTurn = session.snapshot?.turns.find(
+    (turn) => turn.status === "queued" || turn.status === "running",
+  );
 
   const submit = async () => {
     const content = draft.trim();
@@ -856,50 +1294,37 @@ export function AgentChat({
         overflow: "hidden",
         color: colors.ink,
         background: colors.canvas,
-        border: `1px solid ${colors.hairline}`,
-        borderRadius: colors.radius,
         fontFamily: colors.fontFamily,
+        fontSize: 13,
         ...style,
       }}
     >
-      <header
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 9,
-          minHeight: 52,
-          padding: "0 20px",
-          borderBottom: `1px solid ${colors.hairline}`,
-          background: colors.surface,
-          fontSize: 14,
-          fontWeight: 600,
-        }}
-      >
-        <span
-          aria-hidden="true"
+      {header ?? title ? (
+        <header
           style={{
-            width: 8,
-            height: 8,
-            borderRadius: 99,
-            background: session.status === "error" ? colors.danger : colors.accent,
-            opacity: isWorking ? 0.55 : 1,
+            width: "100%",
+            maxWidth: colors.contentMaxWidth,
+            margin: "0 auto",
+            padding: "16px 24px 8px",
+            color: colors.ink,
+            fontSize: 15,
+            fontWeight: 650,
           }}
-        />
-        {title ?? labels.title}
-      </header>
+        >
+          {header ?? title}
+        </header>
+      ) : null}
       <div
         style={{
           display: "flex",
           width: "100%",
-          maxWidth: colors.contentMaxWidth,
           minHeight: 0,
           flex: 1,
           flexDirection: "column",
-          alignSelf: "center",
         }}
       >
         {session.status === "loading" && session.messages.length === 0 ? (
-          <div style={{ margin: "auto", color: colors.inkSecondary, fontSize: 14 }}>{labels.loading}</div>
+          <div style={{ margin: "auto", color: colors.inkSecondary, fontSize: 13 }}>{labels.loading}</div>
         ) : (
           <AgentMessageList
             messages={session.messages}
@@ -911,15 +1336,25 @@ export function AgentChat({
             copy={labels}
           />
         )}
-        <AgentComposer
-          value={draft}
-          onChange={setDraft}
-          onSubmit={submit}
-          disabled={isWorking}
-          error={submitError ?? session.error?.message ?? null}
-          theme={colors}
-          copy={labels}
-        />
+        <div
+          style={{
+            flex: "0 0 auto",
+            background: `linear-gradient(to bottom, transparent 0, ${colors.canvas} 18%)`,
+          }}
+        >
+          <AgentComposer
+            value={draft}
+            onChange={setDraft}
+            onSubmit={submit}
+            disabled={isWorking}
+            error={submitError ?? session.error?.message ?? null}
+            leadingActions={composerLeadingActions}
+            trailingActions={composerTrailingActions}
+            {...(activeTurn ? { onCancel: () => session.cancel(activeTurn.id) } : {})}
+            theme={colors}
+            copy={labels}
+          />
+        </div>
       </div>
     </section>
   );

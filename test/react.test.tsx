@@ -4,6 +4,9 @@ import { createBrowserClient } from "../src";
 import {
   AgentMessage,
   AgentProvider,
+  createAgentAppearance,
+  paperDarkTheme,
+  paperLightTheme,
   reduceAgentMessages,
   reduceAgentToolCalls,
   type AgentChatMessage,
@@ -18,6 +21,33 @@ const base = {
 };
 
 describe("React SDK", () => {
+  test("pins Ferb Paper light and dark palettes", () => {
+    expect(paperLightTheme).toMatchObject({
+      canvas: "#FFFFFF",
+      ink: "#141414",
+      inkSecondary: "#68686D",
+      inkTertiary: "#9B9BA0",
+      well: "#F5F5F8",
+      hairline: "#E4E4E8",
+      statusGood: "#0E7B3F",
+      statusBad: "#C33530",
+      statusWarn: "#A06C02",
+      accent: "#3B6AC5",
+    });
+    expect(paperDarkTheme).toMatchObject({
+      canvas: "#161618",
+      ink: "#ECECEC",
+      inkSecondary: "#98989D",
+      inkTertiary: "#66666B",
+      well: "#1D1D1F",
+      hairline: "#29292C",
+      statusGood: "#63C180",
+      statusBad: "#DF5048",
+      statusWarn: "#E3A648",
+      accent: "#87B1FD",
+    });
+    expect(Object.isFrozen(createAgentAppearance())).toBe(true);
+  });
   test("reduces durable input and retry events into visible messages", () => {
     const events: AgentEvent[] = [
       { ...base, id: 1, attempt: 0, type: "message.input", data: { content: "Hello" } },
@@ -66,7 +96,7 @@ describe("React SDK", () => {
         id: 1,
         attempt: 1,
         type: "tool.call.started",
-        data: { toolCallId: "call-1", name: "orders.lookup", label: "Look up order", input: { orderId: "CS-1042" } },
+        data: { toolCallId: "call-1", name: "orders.lookup", label: "Look up order", summary: "CS-1042", input: { orderId: "CS-1042" } },
       },
       {
         ...base,
@@ -82,6 +112,7 @@ describe("React SDK", () => {
         id: "call-1",
         name: "orders.lookup",
         label: "Look up order",
+        summary: "CS-1042",
         status: "completed",
         input: { orderId: "CS-1042" },
         output: { status: "in_transit" },

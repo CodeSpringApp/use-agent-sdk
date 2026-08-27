@@ -110,6 +110,18 @@ export interface AgentClientOptions {
 
 export interface BrowserAgentClientOptions {
   endpoint: string;
-  getClientToken: () => Promise<string>;
+  getClientToken: () => Promise<ClientTokenResult>;
+  /** Fallback lifetime for opaque legacy tokens without an expiry. Defaults to 60 seconds. */
+  clientTokenTtlMs?: number;
+  /** Refresh before expiry. Defaults to 30 seconds and is bounded for short tokens. */
+  refreshSkewMs?: number;
   fetch?: FetchLike;
 }
+
+export type ClientTokenResult =
+  | string
+  | {
+      token: string;
+      /** ISO timestamp or Unix time in seconds/milliseconds. */
+      expiresAt?: string | number;
+    };

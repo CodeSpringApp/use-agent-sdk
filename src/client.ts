@@ -9,6 +9,7 @@ import type {
   SubmitOptions,
   SubmitTurnResponse,
   AgentClientOptions,
+  ClientTokenResult,
 } from "./types";
 
 export class AgentError extends Error {
@@ -24,7 +25,10 @@ export class AgentError extends Error {
   }
 }
 
-type TokenProvider = () => Promise<string>;
+interface TokenProvider {
+  get: () => Promise<string>;
+  invalidate: () => boolean;
+}
 
 interface TransportOptions {
   endpoint: string;
@@ -43,11 +47,10 @@ class Transport {
   }
 
   async request<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const headers = new Headers(init.headers);
-    headers.set("Accept", "application/json");
-    headers.set("Authorization", `Bearer ${await this.options.token()}`);
-    if (init.body !== undefined) headers.set("Content-Type", "application/json");
-    const response = await this.fetchImplementation(`${this.endpoint}${path}`, { ...init, headers });
+    let response = await this.fetchWithToken(path, init);
+    if (response.status === 401 && this.options.token.invalidate()) {
+      response = await this.fetchWithToken(path, init);
+    }
     const requestId = response.headers.get("x-request-id") ?? undefined;
     const payload = await readJson(response);
     if (!response.ok) {
@@ -62,7 +65,85 @@ class Transport {
     }
     return payload as T;
   }
+
+  private async fetchWithToken(path: string, init: RequestInit): Promise<Response> {
+    const headers = new Headers(init.headers);
+    headers.set("Accept", "application/json");
+    headers.set("Authorization", `Bearer ${await this.options.token.get()}`);
+    if (init.body !== undefined) headers.set("Content-Type", "application/json");
+    return this.fetchImplementation(`${this.endpoint}${path}`, { ...init, headers });
+  }
 }
+
+function jwtExpiry(token: string): number | undefined {
+  const encoded = token.split(".")[1];
+  if (!encoded || typeof globalThis.atob !== "function") return undefined;
+  try {
+    const normalized = encoded.replace(/-/gu, "+").replace(/_/gu, "/");
+    const payload = JSON.parse(globalThis.atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="))) as {
+      exp?: unknown;
+    };
+    return typeof payload.exp === "number" ? payload.exp * 1_000 : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function explicitExpiry(value: string | number | undefined): number | undefined {
+  if (typeof value === "number") return value < 1_000_000_000_000 ? value * 1_000 : value;
+  if (typeof value !== "string") return undefined;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+class CachedTokenProvider implements TokenProvider {
+  private cached: { token: string; refreshAt: number } | undefined;
+  private inFlight: Promise<string> | undefined;
+
+  constructor(
+    private readonly load: () => Promise<ClientTokenResult>,
+    private readonly fallbackTtlMs: number,
+    private readonly refreshSkewMs: number,
+  ) {}
+
+  get = async (): Promise<string> => {
+    if (this.cached && Date.now() < this.cached.refreshAt) return this.cached.token;
+    if (this.inFlight) return this.inFlight;
+    this.inFlight = this.refresh();
+    try {
+      return await this.inFlight;
+    } finally {
+      this.inFlight = undefined;
+    }
+  };
+
+  invalidate = () => {
+    this.cached = undefined;
+    return true;
+  };
+
+  private async refresh(): Promise<string> {
+    const loaded = await this.load();
+    const token = typeof loaded === "string" ? loaded : loaded.token;
+    if (!token.trim()) throw new TypeError("getClientToken returned an empty token");
+    const now = Date.now();
+    const expiry =
+      (typeof loaded === "string" ? undefined : explicitExpiry(loaded.expiresAt)) ??
+      jwtExpiry(token) ??
+      now + this.fallbackTtlMs;
+    const lifetime = Math.max(1_000, expiry - now);
+    this.cached = {
+      token,
+      refreshAt: expiry - Math.min(this.refreshSkewMs, Math.max(500, lifetime / 2)),
+    };
+    return token;
+  }
+}
+
+const staticTokenProvider = (token: string): TokenProvider => ({
+  get: async () => token,
+  invalidate: () => false,
+});
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object";
@@ -160,7 +241,7 @@ export function createClient(options: AgentClientOptions): AgentClient {
   return new AgentClient(
     new Transport({
       endpoint: options.endpoint,
-      token: async () => options.apiKey,
+      token: staticTokenProvider(options.apiKey),
       ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
     }),
   );
@@ -171,7 +252,11 @@ export function createBrowserClient(options: BrowserAgentClientOptions): AgentCl
   return new AgentClient(
     new Transport({
       endpoint: options.endpoint,
-      token: options.getClientToken,
+      token: new CachedTokenProvider(
+        options.getClientToken,
+        options.clientTokenTtlMs ?? 60_000,
+        options.refreshSkewMs ?? 30_000,
+      ),
       ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
     }),
   );

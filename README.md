@@ -47,7 +47,7 @@ import {
 } from "@codespring-app/use-agent/react";
 
 const agentClient = createAgentClient({
-  endpoint: "https://api.agents.codespring.app",
+  endpoint: "https://api.agents.codespring.app/browser",
   clientTokenEndpoint: "/api/agents/token",
 });
 
@@ -70,6 +70,10 @@ deduplicates concurrent refreshes, refreshes before expiry, and retries once
 after a 401. It never persists the token. `createAgentAppearance` produces a
 frozen, reusable preset so unrelated renders do not invalidate theme/copy
 consumers; use `useMemo` when appearance must be dynamic.
+
+The `/browser` endpoint is intentional: it accepts only short-lived client
+tokens and is the only runtime surface with browser CORS. Server API keys stay
+on the endpoint root and must never be shipped to a browser.
 
 The default Paper experience renders assistant replies as document content on
 an edge-to-edge canvas, user messages as quiet trailing wells, tool calls as

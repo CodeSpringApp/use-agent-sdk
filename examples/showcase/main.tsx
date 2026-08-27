@@ -92,7 +92,7 @@ const events = [
 ];
 
 const client = createBrowserClient({
-  endpoint: "http://localhost:8787",
+  endpoint: "http://localhost:8787/browser",
   getClientToken: async () => "showcase-token",
   fetch: async (input) => {
     const url = new URL(String(input));

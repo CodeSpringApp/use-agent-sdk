@@ -26,7 +26,7 @@ describe("React SDK", () => {
   test("creates a stable browser client from a same-origin token endpoint", async () => {
     const requests: string[] = [];
     const client = createAgentClient({
-      endpoint: "http://localhost:8787",
+      endpoint: "http://localhost:8787/browser",
       clientTokenEndpoint: "/api/agents/token",
       fetch: async (input, init) => {
         requests.push(String(input));
@@ -48,7 +48,7 @@ describe("React SDK", () => {
 
     expect(requests).toEqual([]);
     await client.sessions.get("session-1").get();
-    expect(requests).toEqual(["/api/agents/token", "http://localhost:8787/v1/sessions/session-1"]);
+    expect(requests).toEqual(["/api/agents/token", "http://localhost:8787/browser/v1/sessions/session-1"]);
   });
 
   test("pins Ferb Paper light and dark palettes", () => {
@@ -99,7 +99,7 @@ describe("React SDK", () => {
 
   test("provider and presentational components render during SSR", () => {
     const client = createBrowserClient({
-      endpoint: "http://localhost:8787",
+      endpoint: "http://localhost:8787/browser",
       getClientToken: async () => "token",
     });
     const message: AgentChatMessage = {

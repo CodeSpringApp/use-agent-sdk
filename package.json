@@ -3,6 +3,14 @@
   "version": "0.1.0",
   "description": "Server and React SDKs for the CodeSpring Agents runtime",
   "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CodeSpringApp/use-agent-sdk.git"
+  },
+  "homepage": "https://github.com/CodeSpringApp/use-agent-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/CodeSpringApp/use-agent-sdk/issues"
+  },
   "type": "module",
   "sideEffects": false,
   "files": [
@@ -51,7 +59,7 @@
     "node": ">=20"
   },
   "publishConfig": {
-    "access": "restricted",
+    "access": "public",
     "provenance": true
   }
 }

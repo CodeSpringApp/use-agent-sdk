@@ -36,6 +36,35 @@ immutable policy revision while credential rotation remains independent.
 
 API keys are server-only. Do not pass the server client into a browser bundle.
 
+The same client exposes cursor-paginated control-plane reads and idempotent
+mutations when its API key carries the corresponding scope:
+
+```ts
+const agentsPage = await agents.agents.list({ limit: 25 });
+const tool = await agents.tools.get("customer-lookup");
+```
+
+## CLI and coding-agent skill
+
+The package installs a `use-agent` executable and exports a testable Node-only
+entrypoint at `@codespring-app/use-agent/cli`.
+
+```sh
+npx @codespring-app/use-agent skills get app-builder
+npx @codespring-app/use-agent skills install --target codex --yes
+npx @codespring-app/use-agent auth status --json
+```
+
+`skills get` works offline and verifies the bundled content digest. The small
+installed discovery skill points coding agents back to this version-matched
+catalog. Source changes and remote publication remain separate permissions.
+
+For headless server/CI access, put a scoped key in
+`CODESPRING_AGENTS_API_KEY`; credentials are never accepted as command-line
+arguments. The current CLI release does not persist API keys and does not claim
+to provide browser login. Authorization Code + PKCE login will ship only with
+the matching runtime token exchange and native credential-store support.
+
 ## Customer-hosted Node tools
 
 Advanced tools run in your application, with your dependencies, network access,

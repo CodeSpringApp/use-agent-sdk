@@ -1,6 +1,6 @@
 {
   "name": "@codespring-app/use-agent",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Server and React SDKs for the CodeSpring Agents runtime",
   "license": "UNLICENSED",
   "repository": {
@@ -15,6 +15,7 @@
   "sideEffects": false,
   "files": [
     "dist",
+    "skills",
     "docs/screenshots",
     "README.md",
     "CHANGELOG.md"
@@ -28,10 +29,17 @@
       "types": "./dist/react.d.ts",
       "import": "./dist/react.js"
     },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js"
+    },
     "./package.json": "./package.json"
   },
+  "bin": {
+    "use-agent": "./dist/bin/use-agent.js"
+  },
   "scripts": {
-    "build": "tsup src/index.ts src/react.tsx --format esm --dts --clean --out-dir dist",
+    "build": "tsup src/index.ts src/react.tsx src/cli.ts src/bin/use-agent.ts --format esm --dts --clean --out-dir dist && chmod +x dist/bin/use-agent.js",
     "showcase": "vite examples/showcase --host 127.0.0.1",
     "showcase:build": "vite build examples/showcase --outDir ../../dist-showcase --emptyOutDir",
     "example:live": "bun run examples/live-session-replay.ts",

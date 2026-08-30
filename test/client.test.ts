@@ -118,6 +118,59 @@ describe("public SDK", () => {
     );
   });
 
+  test("uses the supported paginated management routes and generates operation IDs", async () => {
+    const requests: Request[] = [];
+    const client = createClient({
+      endpoint: "http://localhost:8787",
+      apiKey: "ua_test_secret",
+      fetch: async (input, init) => {
+        const request = new Request(input, init);
+        requests.push(request);
+        if (request.method === "GET") {
+          return Response.json({ items: [], cursor: null, hasMore: false });
+        }
+        return Response.json({
+          toolId: "customer-echo",
+          displayName: "Customer echo",
+          status: "active",
+          currentRevisionId: "customer-echo@1",
+          currentRevision: {},
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }, { status: 201 });
+      },
+    });
+
+    await client.agents.list({ limit: 25, cursor: "next-page" });
+    await client.tools.create({
+      toolId: "customer-echo",
+      displayName: "Customer echo",
+      initialRevision: {
+        modelName: "customer_echo",
+        description: "Echo input",
+        inputSchema: { type: "object" },
+        transport: {
+          type: "customer_hosted",
+          endpoint: "https://tools.example.com/api/agent-tools",
+          handlerRevision: "2026-08-30.1",
+        },
+      },
+    });
+
+    expect(requests[0]?.url).toBe(
+      "http://localhost:8787/v1/agents?limit=25&cursor=next-page",
+    );
+    expect(requests[1]?.method).toBe("POST");
+    expect(requests[1]?.url).toBe("http://localhost:8787/v1/tools");
+    expect(await requests[1]?.json()).toMatchObject({
+      toolId: "customer-echo",
+      operationId: expect.any(String),
+      initialRevision: {
+        transport: { handlerRevision: "2026-08-30.1" },
+      },
+    });
+  });
+
   test("exchanges a browser token for a cursor-bound WebSocket ticket", async () => {
     const requests: Request[] = [];
     let socket: FakeWebSocket | undefined;

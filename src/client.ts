@@ -15,6 +15,18 @@ import type {
   AgentEvent,
   AgentWebSocketFactory,
   ClientTokenResult,
+  CreateManagedAgentInput,
+  CreateManagedToolInput,
+  ManagedAgent,
+  ManagedAgentRevision,
+  ManagedAgentSummary,
+  ManagedAgentStatus,
+  ManagedToolStatus,
+  ManagedTool,
+  Page,
+  PageOptions,
+  ToolRevisionInput,
+  AgentDraftInput,
   WebSocketServerMessage,
 } from "./types";
 
@@ -346,6 +358,114 @@ export class AgentClient {
     },
     get: (sessionId: string): AgentSession => new AgentSession(this.transport, sessionId),
   };
+
+  readonly agents = {
+    list: (options: PageOptions = {}): Promise<Page<ManagedAgentSummary>> =>
+      this.transport.request(`/v1/agents${pageQuery(options)}`, requestInit(options)),
+    get: (agentId: string, options: RequestOptions = {}): Promise<ManagedAgent> =>
+      this.transport.request(
+        `/v1/agents/${encodeURIComponent(agentId)}`,
+        requestInit(options),
+      ),
+    revisions: (
+      agentId: string,
+      options: PageOptions = {},
+    ): Promise<Page<ManagedAgentRevision>> =>
+      this.transport.request(
+        `/v1/agents/${encodeURIComponent(agentId)}/revisions${pageQuery(options)}`,
+        requestInit(options),
+      ),
+    create: (
+      input: CreateManagedAgentInput,
+      options: RequestOptions = {},
+    ): Promise<ManagedAgent> =>
+      this.transport.request("/v1/agents", {
+        method: "POST",
+        body: JSON.stringify(withOperationId(input)),
+        ...requestInit(options),
+      }),
+    updateDraft: (
+      agentId: string,
+      input: AgentDraftInput,
+      options: RequestOptions = {},
+    ): Promise<ManagedAgent> =>
+      this.transport.request(`/v1/agents/${encodeURIComponent(agentId)}`, {
+        method: "PUT",
+        body: JSON.stringify(withOperationId(input)),
+        ...requestInit(options),
+      }),
+    publish: (agentId: string, options: RequestOptions = {}): Promise<ManagedAgent> =>
+      this.transport.request(`/v1/agents/${encodeURIComponent(agentId)}/publish`, {
+        method: "POST",
+        body: JSON.stringify({ operationId: randomIdempotencyKey() }),
+        ...requestInit(options),
+      }),
+    setStatus: (
+      agentId: string,
+      status: ManagedAgentStatus,
+      options: RequestOptions = {},
+    ): Promise<ManagedAgent> =>
+      this.transport.request(`/v1/agents/${encodeURIComponent(agentId)}/status`, {
+        method: "POST",
+        body: JSON.stringify({ operationId: randomIdempotencyKey(), status }),
+        ...requestInit(options),
+      }),
+  };
+
+  readonly tools = {
+    list: (options: PageOptions = {}): Promise<Page<ManagedTool>> =>
+      this.transport.request(`/v1/tools${pageQuery(options)}`, requestInit(options)),
+    get: (toolId: string, options: RequestOptions = {}): Promise<ManagedTool> =>
+      this.transport.request(
+        `/v1/tools/${encodeURIComponent(toolId)}`,
+        requestInit(options),
+      ),
+    create: (
+      input: CreateManagedToolInput,
+      options: RequestOptions = {},
+    ): Promise<ManagedTool> =>
+      this.transport.request("/v1/tools", {
+        method: "POST",
+        body: JSON.stringify(withOperationId(input)),
+        ...requestInit(options),
+      }),
+    publish: (
+      toolId: string,
+      input: ToolRevisionInput,
+      options: RequestOptions = {},
+    ): Promise<ManagedTool> =>
+      this.transport.request(`/v1/tools/${encodeURIComponent(toolId)}/publish`, {
+        method: "POST",
+        body: JSON.stringify(withOperationId(input)),
+        ...requestInit(options),
+      }),
+    setStatus: (
+      toolId: string,
+      status: ManagedToolStatus,
+      options: RequestOptions = {},
+    ): Promise<ManagedTool> =>
+      this.transport.request(`/v1/tools/${encodeURIComponent(toolId)}/status`, {
+        method: "POST",
+        body: JSON.stringify({ operationId: randomIdempotencyKey(), status }),
+        ...requestInit(options),
+      }),
+  };
+}
+
+function pageQuery(options: PageOptions): string {
+  const query = new URLSearchParams();
+  if (options.limit !== undefined) query.set("limit", String(options.limit));
+  if (options.cursor !== undefined) query.set("cursor", options.cursor);
+  const value = query.toString();
+  return value ? `?${value}` : "";
+}
+
+function requestInit(options: RequestOptions): RequestInit {
+  return options.signal === undefined ? {} : { signal: options.signal };
+}
+
+function withOperationId<T extends { operationId?: string }>(input: T): T & { operationId: string } {
+  return { ...input, operationId: input.operationId ?? randomIdempotencyKey() };
 }
 
 /** Server entrypoint. Never pass this client or its API key into a browser bundle. */

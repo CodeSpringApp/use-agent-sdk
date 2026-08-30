@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0 — 2026-08-30
+
+- Add scoped, cursor-paginated agent and customer-tool management APIs to the
+  server client.
+- Ship the Node-only `@codespring-app/use-agent/cli` entrypoint and `use-agent`
+  executable without affecting the root or React bundles.
+- Add offline, digest-verified coding-agent skills and guarded installation for
+  Codex, Claude, Cursor, Ferb, or an explicit destination.
+- Add environment-only API-key authentication for headless inspection; secrets
+  are not accepted as CLI arguments or persisted by the package.
+
 ## 0.3.0 — 2026-08-30
 
 - Add versioned customer-hosted tools with `defineTool` and local execution.

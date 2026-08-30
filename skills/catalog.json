@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "packageVersion": "0.4.0",
+  "skills": [
+    {
+      "name": "app-builder",
+      "description": "Build and verify an end-to-end CodeSpring Agents application.",
+      "path": "content/app-builder.md",
+      "sha256": "aa3a3af44907147a69591310d4d160f4b0002141140652ed1a0f2905e8d4d74e"
+    },
+    {
+      "name": "customer-tools",
+      "description": "Build signed, retry-safe customer-hosted tools.",
+      "path": "content/customer-tools.md",
+      "sha256": "bab1415d327e7699ae6f0538298da15f60092754c2e0676fcd61c82fc74eaa26"
+    },
+    {
+      "name": "react-ui",
+      "description": "Integrate the plug-and-play or headless React agent UI.",
+      "path": "content/react-ui.md",
+      "sha256": "b7bf424f31c2be84b82e2f67fdc21454d28f985a05c4ff558c581bb597df6a37"
+    },
+    {
+      "name": "control-plane",
+      "description": "Inspect and safely manage control-plane resources.",
+      "path": "content/control-plane.md",
+      "sha256": "3635e424084fd6f11298331ef7922c2788b0414c39e97d63c13a34113bd96db2"
+    }
+  ]
+}

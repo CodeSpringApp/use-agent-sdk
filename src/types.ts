@@ -143,6 +143,113 @@ export interface SubmitOptions extends RequestOptions {
   idempotencyKey?: string;
 }
 
+export interface PageOptions extends RequestOptions {
+  limit?: number;
+  cursor?: string;
+}
+
+export interface Page<T> {
+  items: T[];
+  cursor: string | null;
+  hasMore: boolean;
+}
+
+export type ManagedAgentStatus = "active" | "archived";
+export type ManagedToolStatus = "active" | "disabled";
+
+export interface ManagedAgentSummary {
+  agentId: string;
+  displayName: string;
+  description: string;
+  modelProfileId: string;
+  status: ManagedAgentStatus;
+  currentRevisionId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ManagedAgentRevision {
+  revisionId: string;
+  revisionNumber: number;
+  agentId: string;
+  displayName: string;
+  description: string;
+  instructions: string;
+  modelProfileId: string;
+  modelProfileRevisionId: string;
+  maxModelSteps: number;
+  maxToolCalls: number;
+  tools: Array<{ toolId: string; revisionId: string; modelName: string }>;
+  createdAt: string;
+}
+
+export interface ManagedAgent extends ManagedAgentSummary {
+  instructions: string;
+  toolIds: string[];
+  currentRevision: ManagedAgentRevision | null;
+  hasUnpublishedChanges: boolean;
+}
+
+export interface AgentDraftInput {
+  operationId?: string;
+  displayName: string;
+  description?: string;
+  instructions: string;
+  modelProfileId: string;
+  toolIds?: string[];
+}
+
+export interface CreateManagedAgentInput extends AgentDraftInput {
+  agentId: string;
+}
+
+export type ManagedToolTransport =
+  | { type: "https_get"; endpoint: string }
+  | { type: "customer_hosted"; endpoint: string; handlerRevision: string };
+
+export interface ManagedToolRevision {
+  revisionId: string;
+  revisionNumber: number;
+  toolId: string;
+  modelName: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  transport: ManagedToolTransport;
+  timeoutMs: number;
+  maxResponseBytes: number;
+  risk: "read" | "write";
+  effectClass: "read" | "idempotent_write";
+  createdAt: string;
+}
+
+export interface ManagedTool {
+  toolId: string;
+  displayName: string;
+  status: ManagedToolStatus;
+  currentRevisionId: string;
+  currentRevision: ManagedToolRevision;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ToolRevisionInput {
+  operationId?: string;
+  modelName: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  transport: ManagedToolTransport;
+  risk?: "read" | "write";
+  timeoutMs?: number;
+  maxResponseBytes?: number;
+}
+
+export interface CreateManagedToolInput {
+  operationId?: string;
+  toolId: string;
+  displayName: string;
+  initialRevision: Omit<ToolRevisionInput, "operationId">;
+}
+
 export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 export interface AgentClientOptions {

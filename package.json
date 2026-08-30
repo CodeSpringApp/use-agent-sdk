@@ -48,15 +48,23 @@
     "check": "bun run typecheck && bun run test && bun run build"
   },
   "peerDependencies": {
-    "react": ">=18.0.0"
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
   },
   "peerDependenciesMeta": {
     "react": {
       "optional": true
+    },
+    "react-dom": {
+      "optional": true
     }
   },
   "dependencies": {
-    "jose": "^6.2.10"
+    "@shikijs/langs": "4.4.3",
+    "@shikijs/themes": "4.4.3",
+    "jose": "^6.2.10",
+    "shiki": "4.4.3",
+    "streamdown": "2.6.0"
   },
   "devDependencies": {
     "@types/bun": "latest",

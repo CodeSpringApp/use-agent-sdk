@@ -206,6 +206,36 @@ compact inspectable activity rows, and the live-edge composer without a shadow.
 `paperLightTheme`, `paperDarkTheme`, theme/copy overrides, slots, and render
 functions are available for customization.
 
+Assistant text is rendered as hardened, streaming-safe GFM through Streamdown.
+Fenced code uses the exported `AgentCodeBlock`, with a readable immediate
+fallback and lazy Shiki highlighting. The renderer requires no Tailwind source
+configuration, shadcn variables, or global stylesheet.
+
+```tsx
+import {
+  AgentCodeBlock,
+  AgentMarkdown,
+} from "@codespring-app/use-agent/react";
+
+<AgentMarkdown streaming={isStreaming}>
+  {generatedMarkdown}
+</AgentMarkdown>
+
+<AgentCodeBlock
+  code={'const agent = createAgent({ id: "support" });'}
+  language="typescript"
+  filename="agent.ts"
+  showLineNumbers
+/>
+```
+
+The highlighted language set covers common web, systems, mobile, data, and
+scripting languages—including TypeScript, Python, Go, Rust, Java, SQL, shell,
+HTML/CSS, and JSON. Grammars load only when used. Unknown language identifiers
+fall back to plain code instead of failing. Raw HTML and remote images are
+disabled in model Markdown by default; advanced clients can pass semantic
+component overrides to `AgentMarkdown`.
+
 ## CSS variables, Tailwind CSS, and StyleX
 
 Every default component resolves theme tokens through inherited

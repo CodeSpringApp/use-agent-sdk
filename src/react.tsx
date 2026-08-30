@@ -1,6 +1,7 @@
 import {
   createContext,
   createElement,
+  memo,
   type CSSProperties,
   type KeyboardEvent,
   type PropsWithChildren,
@@ -12,6 +13,11 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import {
+  Streamdown,
+  type Components as StreamdownComponents,
+  useIsCodeFenceIncomplete,
+} from "streamdown";
 import {
   AgentError,
   createBrowserClient,
@@ -27,6 +33,12 @@ import type {
   SubmitOptions,
   SubmitTurnResponse,
 } from "./types";
+import {
+  highlightAgentCode,
+  normalizeCodeLanguage,
+  type AgentCodeLanguage,
+  type HighlightedCode,
+} from "./syntax-highlighter";
 
 export interface AgentTheme {
   canvas: string;
@@ -134,6 +146,7 @@ export const defaultAgentCopy: Readonly<AgentCopy> = Object.freeze({
 });
 
 export interface AgentAppearance {
+  readonly mode?: "light" | "dark";
   readonly theme: Readonly<AgentTheme>;
   readonly copy: Readonly<AgentCopy>;
 }
@@ -150,6 +163,7 @@ export function createAgentAppearance({
   copy,
 }: CreateAgentAppearanceOptions = {}): AgentAppearance {
   return Object.freeze({
+    mode,
     theme: Object.freeze({ ...(mode === "dark" ? paperDarkTheme : paperLightTheme), ...theme }),
     copy: Object.freeze({ ...defaultAgentCopy, ...copy }),
   });
@@ -200,6 +214,7 @@ function withThemeOverrides(base: AgentTheme, overrides: Partial<AgentTheme> | u
 
 interface AgentContextValue {
   client: AgentClient;
+  mode: "light" | "dark";
   theme: AgentTheme;
   copy: AgentCopy;
   stores: Map<string, SessionStore>;
@@ -243,6 +258,7 @@ export function AgentProvider({
     () => Object.freeze({ ...appearance.copy, ...stableCopy }),
     [appearance.copy, stableCopy],
   );
+  const resolvedMode = appearance.mode ?? "light";
   const stores = useMemo(() => new Map<string, SessionStore>(), [client]);
   useEffect(() => () => {
     for (const store of stores.values()) store.dispose();
@@ -251,11 +267,12 @@ export function AgentProvider({
   const value = useMemo(
     () => ({
       client,
+      mode: resolvedMode,
       theme: resolvedTheme,
       copy: resolvedCopy,
       stores,
     }),
-    [client, resolvedTheme, resolvedCopy, stores],
+    [client, resolvedMode, resolvedTheme, resolvedCopy, stores],
   );
   return createElement(AgentContext.Provider, { value }, children);
 }
@@ -265,6 +282,257 @@ function useAgentContext(): AgentContextValue {
   if (!value) throw new Error("Agent React APIs must be used inside AgentProvider");
   return value;
 }
+
+interface StyledProps {
+  className?: string;
+  style?: CSSProperties;
+}
+
+async function writeClipboard(value: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return;
+    } catch {
+      // A secure browser context can still reject clipboard access by policy.
+    }
+  }
+  const input = document.createElement("textarea");
+  input.value = value;
+  input.setAttribute("readonly", "");
+  input.style.position = "fixed";
+  input.style.opacity = "0";
+  document.body.appendChild(input);
+  input.select();
+  const copied = document.execCommand("copy");
+  input.remove();
+  if (!copied) throw new Error("Clipboard is unavailable");
+}
+
+function tokenStyle(token: HighlightedCode["tokens"][number][number]): CSSProperties {
+  const fontStyle = token.fontStyle ?? 0;
+  return {
+    color: token.color,
+    backgroundColor: token.bgColor,
+    fontStyle: fontStyle & 1 ? "italic" : undefined,
+    fontWeight: fontStyle & 2 ? 650 : undefined,
+    textDecoration: fontStyle & 4 ? "underline" : undefined,
+    ...(token.htmlStyle as CSSProperties | undefined),
+  };
+}
+
+export interface AgentCodeBlockProps extends StyledProps {
+  code: string;
+  language?: AgentCodeLanguage | string;
+  filename?: string;
+  showLineNumbers?: boolean;
+  copy?: boolean;
+  streaming?: boolean;
+  theme?: Partial<AgentTheme>;
+}
+
+/** A Paper-themed, async Shiki code block with a readable plain-text fallback. */
+export function AgentCodeBlock({
+  code,
+  language,
+  filename,
+  showLineNumbers = false,
+  copy = true,
+  streaming = false,
+  className,
+  style,
+  theme,
+}: AgentCodeBlockProps) {
+  const context = useAgentContext();
+  const colors = withThemeOverrides(context.theme, theme);
+  const fenceIncomplete = useIsCodeFenceIncomplete();
+  const incomplete = streaming || fenceIncomplete;
+  const canonicalLanguage = normalizeCodeLanguage(language);
+  const [highlighted, setHighlighted] = useState<HighlightedCode | null>(null);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setHighlighted(null);
+    if (!incomplete && canonicalLanguage !== "text") {
+      void highlightAgentCode(code, canonicalLanguage, context.mode).then((result) => {
+        if (active) setHighlighted(result);
+      });
+    }
+    return () => { active = false; };
+  }, [canonicalLanguage, code, context.mode, incomplete]);
+
+  useEffect(() => () => {
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+  }, []);
+
+  const runCopy = async () => {
+    try {
+      await writeClipboard(code);
+      setCopyState("copied");
+    } catch {
+      setCopyState("failed");
+    }
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+    copyTimer.current = setTimeout(() => setCopyState("idle"), 1_500);
+  };
+
+  const label = filename ?? language?.trim() ?? null;
+  const hasHeader = Boolean(label || copy);
+  const rawLines = code.split("\n");
+  const lines = highlighted?.tokens ?? rawLines.map((line) => line ? [{ content: line, offset: 0 }] : []);
+
+  return (
+    <figure
+      className={className}
+      data-codespring-agent-code=""
+      style={{
+        position: "relative",
+        margin: "9px 0",
+        overflow: "hidden",
+        border: `1px solid ${colors.hairline}`,
+        borderRadius: colors.wellRadius,
+        background: colors.well,
+        color: colors.ink,
+        ...style,
+      }}
+    >
+      {label ? (
+        <figcaption style={{ position: "absolute", top: 8, left: 12, zIndex: 1, color: colors.inkTertiary, fontFamily: colors.monoFamily, fontSize: 10 }}>
+          {label}
+        </figcaption>
+      ) : null}
+      {copy ? (
+        <button
+          type="button"
+          disabled={incomplete}
+          onClick={() => void runCopy()}
+          aria-label={copyState === "idle" ? "Copy code" : copyState === "copied" ? "Code copied" : "Copy failed"}
+          aria-live="polite"
+          style={{
+            position: "absolute",
+            top: 6,
+            right: 7,
+            zIndex: 1,
+            minWidth: 39,
+            height: 22,
+            padding: "0 6px",
+            border: 0,
+            borderRadius: 4,
+            background: colors.well,
+            color: colors.inkTertiary,
+            cursor: incomplete ? "not-allowed" : "pointer",
+            fontFamily: colors.monoFamily,
+            fontSize: 10,
+            opacity: incomplete ? 0.5 : 1,
+          }}
+        >
+          {copyState === "copied" ? "copied" : copyState === "failed" ? "failed" : "copy"}
+        </button>
+      ) : null}
+      <pre
+        style={{
+          margin: 0,
+          padding: hasHeader ? "34px 12px 12px" : "12px",
+          overflowX: "auto",
+          fontFamily: colors.monoFamily,
+          fontSize: 12,
+          lineHeight: 1.55,
+          tabSize: 2,
+        }}
+      >
+        <code>
+          {lines.map((line, lineIndex) => (
+            <span key={lineIndex} style={{ display: "flex", minHeight: "1.55em" }}>
+              {showLineNumbers ? (
+                <span aria-hidden="true" style={{ width: 30, marginRight: 12, flex: "0 0 auto", color: colors.inkTertiary, textAlign: "right", userSelect: "none" }}>
+                  {lineIndex + 1}
+                </span>
+              ) : null}
+              <span style={{ display: "block", minWidth: "max-content" }}>
+                {line.length === 0
+                  ? "\u00a0"
+                  : line.map((token, tokenIndex) => (
+                    <span key={tokenIndex} style={highlighted ? tokenStyle(token) : undefined}>{token.content}</span>
+                  ))}
+              </span>
+            </span>
+          ))}
+        </code>
+      </pre>
+    </figure>
+  );
+}
+
+export type AgentMarkdownComponents = StreamdownComponents;
+
+export interface AgentMarkdownProps extends StyledProps {
+  children: string;
+  streaming?: boolean;
+  theme?: Partial<AgentTheme>;
+  components?: AgentMarkdownComponents;
+}
+
+/** Streaming-safe, hardened GFM rendering for model-authored text. */
+export const AgentMarkdown = memo(function AgentMarkdown({
+  children,
+  streaming = false,
+  className,
+  style,
+  theme,
+  components: componentOverrides,
+}: AgentMarkdownProps) {
+  const context = useAgentContext();
+  const colors = withThemeOverrides(context.theme, theme);
+  const components = useMemo<StreamdownComponents>(() => ({
+    h1: ({ children: content }) => <h1 style={{ margin: "16px 0 7px", color: colors.ink, fontSize: 17, fontWeight: 650, lineHeight: 1.3 }}>{content}</h1>,
+    h2: ({ children: content }) => <h2 style={{ margin: "15px 0 6px", color: colors.ink, fontSize: 15, fontWeight: 650, lineHeight: 1.35 }}>{content}</h2>,
+    h3: ({ children: content }) => <h3 style={{ margin: "13px 0 5px", color: colors.ink, fontSize: 13, fontWeight: 650, lineHeight: 1.4 }}>{content}</h3>,
+    h4: ({ children: content }) => <h4 style={{ margin: "12px 0 5px", color: colors.ink, fontSize: 13, fontWeight: 550 }}>{content}</h4>,
+    p: ({ children: content }) => <p style={{ margin: "0 0 9px", whiteSpace: "pre-wrap" }}>{content}</p>,
+    strong: ({ children: content }) => <strong style={{ fontWeight: 650 }}>{content}</strong>,
+    em: ({ children: content }) => <em>{content}</em>,
+    del: ({ children: content }) => <del style={{ color: colors.inkSecondary }}>{content}</del>,
+    ul: ({ children: content }) => <ul style={{ margin: "7px 0 9px", paddingLeft: 20 }}>{content}</ul>,
+    ol: ({ children: content }) => <ol style={{ margin: "7px 0 9px", paddingLeft: 22 }}>{content}</ol>,
+    li: ({ children: content }) => <li style={{ margin: "3px 0", paddingLeft: 2 }}>{content}</li>,
+    blockquote: ({ children: content }) => <blockquote style={{ margin: "9px 0", paddingLeft: 11, borderLeft: `2px solid ${colors.hairline}`, color: colors.inkSecondary }}>{content}</blockquote>,
+    hr: () => <hr style={{ margin: "15px 0", border: 0, borderTop: `1px solid ${colors.hairline}` }} />,
+    a: ({ children: content, href }) => <a href={href} target="_blank" rel="noreferrer noopener" style={{ color: colors.accent, textDecorationThickness: 1, textUnderlineOffset: 2 }}>{content}</a>,
+    inlineCode: ({ children: content }) => <code style={{ padding: "1px 4px", borderRadius: 4, background: colors.well, fontFamily: colors.monoFamily, fontSize: "0.92em" }}>{content}</code>,
+    code: ({ children: content, className: codeClassName }) => {
+      const language = typeof codeClassName === "string" ? codeClassName.replace(/^language-/u, "") : undefined;
+      const code = String(content).replace(/\n$/u, "");
+      return <AgentCodeBlock code={code} {...(language === undefined ? {} : { language })} {...(theme === undefined ? {} : { theme })} />;
+    },
+    table: ({ children: content }) => <div style={{ margin: "10px 0", overflowX: "auto", border: `1px solid ${colors.hairline}`, borderRadius: colors.wellRadius }}><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>{content}</table></div>,
+    th: ({ children: content }) => <th style={{ padding: "7px 9px", borderBottom: `1px solid ${colors.hairline}`, background: colors.well, color: colors.inkSecondary, fontWeight: 650, textAlign: "left" }}>{content}</th>,
+    td: ({ children: content }) => <td style={{ padding: "7px 9px", borderBottom: `1px solid ${colors.hairline}`, verticalAlign: "top" }}>{content}</td>,
+    input: ({ checked, type }) => type === "checkbox" ? <input type="checkbox" checked={checked} readOnly tabIndex={-1} style={{ margin: "0 6px 0 0", accentColor: colors.accent }} /> : null,
+    img: () => null,
+    ...componentOverrides,
+  }), [colors, componentOverrides, theme]);
+
+  return (
+    <div className={className} style={{ color: colors.ink, overflowWrap: "anywhere", ...style }}>
+      <Streamdown
+        mode={streaming ? "streaming" : "static"}
+        isAnimating={streaming}
+        parseIncompleteMarkdown={streaming}
+        components={components}
+        controls={false}
+        lineNumbers={false}
+        linkSafety={{ enabled: false }}
+        skipHtml
+        disallowedElements={["img"]}
+        dir="auto"
+      >
+        {children}
+      </Streamdown>
+    </div>
+  );
+});
 
 export function useAgentClient(): AgentClient {
   return useAgentContext().client;
@@ -892,191 +1160,10 @@ export function useAgentToolCalls(sessionId: string): AgentToolCall[] {
   return useAgentSession(sessionId).toolCalls;
 }
 
-interface StyledProps {
-  className?: string;
-  style?: CSSProperties;
-}
-
 export interface AgentMessageProps extends StyledProps {
   message: AgentChatMessage;
   theme?: Partial<AgentTheme>;
   copy?: Partial<AgentCopy>;
-}
-
-function inlineMarkdown(text: string, colors: AgentTheme): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  const pattern = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^\s)]+\))/gu;
-  let cursor = 0;
-  for (const match of text.matchAll(pattern)) {
-    const index = match.index ?? 0;
-    if (index > cursor) nodes.push(text.slice(cursor, index));
-    const token = match[0];
-    if (token.startsWith("**")) {
-      nodes.push(<strong key={`${index}:strong`} style={{ fontWeight: 650 }}>{token.slice(2, -2)}</strong>);
-    } else if (token.startsWith("`")) {
-      nodes.push(
-        <code
-          key={`${index}:code`}
-          style={{
-            padding: "1px 4px",
-            borderRadius: 4,
-            background: colors.well,
-            fontFamily: colors.monoFamily,
-            fontSize: 12,
-          }}
-        >
-          {token.slice(1, -1)}
-        </code>,
-      );
-    } else {
-      const parts = /^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/u.exec(token);
-      nodes.push(
-        <a
-          key={`${index}:link`}
-          href={parts?.[2]}
-          target="_blank"
-          rel="noreferrer"
-          style={{ color: colors.accent, textDecorationThickness: 1, textUnderlineOffset: 2 }}
-        >
-          {parts?.[1]}
-        </a>,
-      );
-    }
-    cursor = index + token.length;
-  }
-  if (cursor < text.length) nodes.push(text.slice(cursor));
-  return nodes;
-}
-
-function AgentMarkdown({ content, colors }: { content: string; colors: AgentTheme }) {
-  const lines = content.split("\n");
-  const blocks: ReactNode[] = [];
-  let index = 0;
-  while (index < lines.length) {
-    const line = lines[index] ?? "";
-    if (line.startsWith("```")) {
-      const language = line.slice(3).trim();
-      const code: string[] = [];
-      index += 1;
-      while (index < lines.length && !lines[index]?.startsWith("```")) {
-        code.push(lines[index] ?? "");
-        index += 1;
-      }
-      if (index < lines.length) index += 1;
-      blocks.push(
-        <div key={`code:${index}`} style={{ position: "relative", margin: "8px 0" }}>
-          {language ? (
-            <span
-              style={{
-                position: "absolute",
-                top: 7,
-                right: 9,
-                color: colors.inkTertiary,
-                fontFamily: colors.monoFamily,
-                fontSize: 10,
-              }}
-            >
-              {language}
-            </span>
-          ) : null}
-          <pre
-            style={{
-              margin: 0,
-              padding: language ? "25px 12px 11px" : "11px 12px",
-              overflowX: "auto",
-              borderRadius: colors.wellRadius,
-              background: colors.well,
-              fontFamily: colors.monoFamily,
-              fontSize: 12,
-              lineHeight: 1.5,
-            }}
-          >
-            <code>{code.join("\n")}</code>
-          </pre>
-        </div>,
-      );
-      continue;
-    }
-    const heading = /^(#{1,3})\s+(.+)$/u.exec(line);
-    if (heading) {
-      const level = heading[1]?.length ?? 3;
-      blocks.push(
-        <div
-          key={`heading:${index}`}
-          role="heading"
-          aria-level={level}
-          style={{
-            margin: index === 0 ? "0 0 6px" : "14px 0 6px",
-            fontSize: level === 1 ? 15 : 13,
-            fontWeight: level < 3 ? 650 : 550,
-            lineHeight: 1.35,
-          }}
-        >
-          {inlineMarkdown(heading[2] ?? "", colors)}
-        </div>,
-      );
-      index += 1;
-      continue;
-    }
-    if (/^[-*]\s+/u.test(line)) {
-      const items: string[] = [];
-      while (index < lines.length && /^[-*]\s+/u.test(lines[index] ?? "")) {
-        items.push((lines[index] ?? "").replace(/^[-*]\s+/u, ""));
-        index += 1;
-      }
-      blocks.push(
-        <ul key={`list:${index}`} style={{ margin: "6px 0", paddingLeft: 19 }}>
-          {items.map((item, itemIndex) => (
-            <li key={itemIndex} style={{ margin: "3px 0", paddingLeft: 2 }}>
-              {inlineMarkdown(item, colors)}
-            </li>
-          ))}
-        </ul>,
-      );
-      continue;
-    }
-    if (line.startsWith("> ")) {
-      const quote: string[] = [];
-      while (index < lines.length && (lines[index] ?? "").startsWith("> ")) {
-        quote.push((lines[index] ?? "").slice(2));
-        index += 1;
-      }
-      blocks.push(
-        <blockquote
-          key={`quote:${index}`}
-          style={{
-            margin: "8px 0",
-            paddingLeft: 10,
-            borderLeft: `2px solid ${colors.hairline}`,
-            color: colors.inkSecondary,
-          }}
-        >
-          {inlineMarkdown(quote.join("\n"), colors)}
-        </blockquote>,
-      );
-      continue;
-    }
-    if (!line.trim()) {
-      index += 1;
-      continue;
-    }
-    const paragraph = [line];
-    index += 1;
-    while (
-      index < lines.length &&
-      (lines[index] ?? "").trim() &&
-      !/^(#{1,3})\s+|^```|^[-*]\s+|^> /u.test(lines[index] ?? "")
-    ) {
-      paragraph.push(lines[index] ?? "");
-      index += 1;
-    }
-    blocks.push(
-      <p key={`paragraph:${index}`} style={{ margin: "0 0 9px", whiteSpace: "pre-wrap" }}>
-        {inlineMarkdown(paragraph.join("\n"), colors)}
-      </p>,
-    );
-  }
-  return <>{blocks}</>;
 }
 
 export function AgentMessage({ message, className, style, theme, copy }: AgentMessageProps) {
@@ -1109,7 +1196,11 @@ export function AgentMessage({ message, className, style, theme, copy }: AgentMe
         ...style,
       }}
     >
-      {message.content ? (isUser ? message.content : <AgentMarkdown content={message.content} colors={colors} />) : fallback}
+      {message.content ? (
+        isUser ? message.content : (
+          <AgentMarkdown streaming={message.status === "streaming"} {...(theme === undefined ? {} : { theme })}>{message.content}</AgentMarkdown>
+        )
+      ) : fallback}
     </article>
   );
 }

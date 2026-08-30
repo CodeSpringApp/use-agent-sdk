@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createBrowserClient } from "../src";
 import {
+  AgentCodeBlock,
+  AgentMarkdown,
   AgentMessage,
   AgentProvider,
   agentThemeVariables,
@@ -130,6 +132,45 @@ describe("React SDK", () => {
     );
     expect(themedHtml).toContain("var(--codespring-agent-well, #ABCDEF)");
     expect(themedHtml).not.toContain("var(--codespring-agent-well, var(--codespring-agent-well");
+  });
+
+  test("renders hardened GFM and reusable code blocks during SSR", () => {
+    const client = createBrowserClient({
+      endpoint: "http://localhost:8787/browser",
+      getClientToken: async () => "token",
+    });
+    const markdown = [
+      "## Result",
+      "",
+      "- [x] Parsed **safely**",
+      "- [ ] Ship it",
+      "",
+      "| Item | State |",
+      "| --- | --- |",
+      "| Markdown | ready |",
+      "",
+      "```typescript",
+      "const ready: boolean = true;",
+      "```",
+      "",
+      "<script>globalThis.compromised = true</script>",
+    ].join("\n");
+
+    const html = renderToStaticMarkup(
+      <AgentProvider client={client}>
+        <AgentMarkdown>{markdown}</AgentMarkdown>
+        <AgentCodeBlock code={'const id = "agent";'} language="typescript" />
+      </AgentProvider>,
+    );
+
+    expect(html).toContain("<h2");
+    expect(html).toContain("<table");
+    expect(html).toContain("Parsed <strong");
+    expect(html.match(/data-codespring-agent-code=""/gu)).toHaveLength(2);
+    expect(html).toContain("const ready: boolean = true;");
+    expect(html).toContain("const id = &quot;agent&quot;;");
+    expect(html).not.toContain("<script");
+    expect(html).not.toContain("globalThis.compromised");
   });
 
   test("reduces the canonical runtime compatibility fixture", async () => {

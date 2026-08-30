@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Replace the hand-written assistant Markdown parser with Streamdown for
+  hardened, streaming-safe GFM.
+- Export reusable `AgentMarkdown` and `AgentCodeBlock` primitives.
+- Add lazy, fine-grained Shiki highlighting with immediate plain-code fallback,
+  bounded caching, Paper themes, and reliable copy controls.
+
 ## 0.5.0 — 2026-08-31
 
 - Add RFC 8628 device authorization for interactive CLI login with explicit

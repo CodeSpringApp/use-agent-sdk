@@ -17,6 +17,20 @@ Your package left our Mumbai facility this morning and is now in transit to Beng
 - **Expected delivery:** Friday, 29 August
 - **Tracking status:** In transit
 
+| Checkpoint | Status |
+| --- | --- |
+| Mumbai facility | Complete |
+| Bengaluru delivery | Pending |
+
+You can also inspect the normalized response:
+
+\`\`\`typescript
+const delivery = {
+  status: "in_transit",
+  expectedDelivery: "2026-08-29",
+};
+\`\`\`
+
 I’ll keep monitoring it and let you know if the delivery window changes.`;
 
 const events = [

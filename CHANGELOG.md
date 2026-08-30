@@ -2,11 +2,17 @@
 
 ## Unreleased
 
+## 0.6.0 — 2026-08-31
+
 - Replace the hand-written assistant Markdown parser with Streamdown for
   hardened, streaming-safe GFM.
 - Export reusable `AgentMarkdown` and `AgentCodeBlock` primitives.
 - Add lazy, fine-grained Shiki highlighting with immediate plain-code fallback,
   bounded caching, Paper themes, and reliable copy controls.
+- Add public-neutral `AgentGenerativeUI` choice, multi-select, form, and review
+  primitives with controlled pending/submitting/resolved state.
+- Allow presentation-only components to render standalone while keeping client
+  and durable-session hooks gated by `AgentProvider`.
 
 ## 0.5.0 — 2026-08-31
 

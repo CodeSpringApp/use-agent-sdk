@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createBrowserClient } from "../src";
 import {
   AgentCodeBlock,
+  AgentGenerativeUI,
   AgentMarkdown,
   AgentMessage,
   AgentProvider,
@@ -171,6 +172,29 @@ describe("React SDK", () => {
     expect(html).toContain("const id = &quot;agent&quot;;");
     expect(html).not.toContain("<script");
     expect(html).not.toContain("globalThis.compromised");
+  });
+
+  test("renders product-neutral generative controls without a runtime provider", () => {
+    const html = renderToStaticMarkup(
+      <AgentGenerativeUI
+        request={{
+          requestId: "priority",
+          kind: "choice",
+          title: "Choose a priority",
+          options: [
+            { id: "quality", label: "Best quality", description: "Prefer stronger answers" },
+            { id: "speed", label: "Faster responses" },
+          ],
+        }}
+        onSubmit={() => undefined}
+      />,
+    );
+
+    expect(html).toContain('data-codespring-agent-ui="choice"');
+    expect(html).toContain("Choose a priority");
+    expect(html).toContain("Best quality");
+    expect(html).not.toContain("agent-builder");
+    expect(html).not.toContain("control-plane");
   });
 
   test("reduces the canonical runtime compatibility fixture", async () => {

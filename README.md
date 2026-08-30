@@ -236,6 +236,31 @@ fall back to plain code instead of failing. Raw HTML and remote images are
 disabled in model Markdown by default; advanced clients can pass semantic
 component overrides to `AgentMarkdown`.
 
+The React entrypoint also includes bounded generative-UI controls. Applications
+provide typed data; the component never evaluates model-authored HTML, styles,
+URLs, handlers, or code:
+
+```tsx
+import { AgentGenerativeUI } from "@codespring-app/use-agent/react";
+
+<AgentGenerativeUI
+  request={{
+    requestId: "model-priority",
+    kind: "choice",
+    title: "What matters most?",
+    options: [
+      { id: "quality", label: "Best quality" },
+      { id: "speed", label: "Faster responses" },
+    ],
+  }}
+  onSubmit={(response) => saveResponse(response)}
+/>
+```
+
+`AgentMarkdown`, `AgentCodeBlock`, and `AgentGenerativeUI` can render
+standalone. Session hooks and connected chat components still require
+`AgentProvider`.
+
 ## CSS variables, Tailwind CSS, and StyleX
 
 Every default component resolves theme tokens through inherited

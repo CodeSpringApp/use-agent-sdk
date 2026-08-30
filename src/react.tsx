@@ -283,6 +283,22 @@ function useAgentContext(): AgentContextValue {
   return value;
 }
 
+function useOptionalAgentContext(): AgentContextValue | null {
+  return useContext(AgentContext);
+}
+
+function usePresentationTheme(theme: Partial<AgentTheme> | undefined): {
+  colors: AgentTheme;
+  mode: "light" | "dark";
+} {
+  const context = useOptionalAgentContext();
+  const base = context?.theme ?? withThemeVariables(paperAppearance.theme);
+  return {
+    colors: withThemeOverrides(base, theme),
+    mode: context?.mode ?? paperAppearance.mode ?? "light",
+  };
+}
+
 interface StyledProps {
   className?: string;
   style?: CSSProperties;
@@ -343,8 +359,7 @@ export function AgentCodeBlock({
   style,
   theme,
 }: AgentCodeBlockProps) {
-  const context = useAgentContext();
-  const colors = withThemeOverrides(context.theme, theme);
+  const { colors, mode } = usePresentationTheme(theme);
   const fenceIncomplete = useIsCodeFenceIncomplete();
   const incomplete = streaming || fenceIncomplete;
   const canonicalLanguage = normalizeCodeLanguage(language);
@@ -356,12 +371,12 @@ export function AgentCodeBlock({
     let active = true;
     setHighlighted(null);
     if (!incomplete && canonicalLanguage !== "text") {
-      void highlightAgentCode(code, canonicalLanguage, context.mode).then((result) => {
+      void highlightAgentCode(code, canonicalLanguage, mode).then((result) => {
         if (active) setHighlighted(result);
       });
     }
     return () => { active = false; };
-  }, [canonicalLanguage, code, context.mode, incomplete]);
+  }, [canonicalLanguage, code, mode, incomplete]);
 
   useEffect(() => () => {
     if (copyTimer.current) clearTimeout(copyTimer.current);
@@ -483,8 +498,7 @@ export const AgentMarkdown = memo(function AgentMarkdown({
   theme,
   components: componentOverrides,
 }: AgentMarkdownProps) {
-  const context = useAgentContext();
-  const colors = withThemeOverrides(context.theme, theme);
+  const { colors } = usePresentationTheme(theme);
   const components = useMemo<StreamdownComponents>(() => ({
     h1: ({ children: content }) => <h1 style={{ margin: "16px 0 7px", color: colors.ink, fontSize: 17, fontWeight: 650, lineHeight: 1.3 }}>{content}</h1>,
     h2: ({ children: content }) => <h2 style={{ margin: "15px 0 6px", color: colors.ink, fontSize: 15, fontWeight: 650, lineHeight: 1.35 }}>{content}</h2>,
@@ -533,6 +547,274 @@ export const AgentMarkdown = memo(function AgentMarkdown({
     </div>
   );
 });
+
+export interface AgentUIOption {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+export interface AgentUIField {
+  id: string;
+  label: string;
+  value: string;
+  description?: string;
+  format?: "text" | "slug" | "multiline";
+  required?: boolean;
+}
+
+interface AgentUIRequestBase {
+  requestId: string;
+  title: string;
+  description?: string;
+  submitLabel?: string;
+}
+
+export type AgentUIRequest =
+  | (AgentUIRequestBase & {
+      kind: "choice";
+      options: AgentUIOption[];
+    })
+  | (AgentUIRequestBase & {
+      kind: "multi_select";
+      options: AgentUIOption[];
+      minimum?: number;
+      maximum?: number;
+    })
+  | (AgentUIRequestBase & {
+      kind: "form";
+      fields: AgentUIField[];
+    })
+  | (AgentUIRequestBase & {
+      kind: "review";
+      items: Array<{ id: string; label: string; value: string }>;
+    });
+
+export type AgentUIResponse =
+  | { requestId: string; kind: "choice"; value: string }
+  | { requestId: string; kind: "multi_select"; value: string[] }
+  | { requestId: string; kind: "form"; value: Record<string, string> }
+  | { requestId: string; kind: "review"; value: "approved" };
+
+export type AgentUIState = "pending" | "submitting" | "resolved";
+
+export interface AgentUIRendererProps {
+  request: AgentUIRequest;
+  state: AgentUIState;
+  response?: AgentUIResponse;
+  disabled: boolean;
+  submit: (response: AgentUIResponse) => void;
+}
+
+export type AgentUIRenderers = Partial<Record<
+  AgentUIRequest["kind"],
+  (props: AgentUIRendererProps) => ReactNode
+>>;
+
+export interface AgentGenerativeUIProps extends StyledProps {
+  request: AgentUIRequest;
+  state?: AgentUIState;
+  response?: AgentUIResponse;
+  error?: string;
+  disabled?: boolean;
+  theme?: Partial<AgentTheme>;
+  renderers?: AgentUIRenderers;
+  onSubmit: (response: AgentUIResponse) => void | Promise<void>;
+}
+
+/**
+ * Renders a bounded, declarative human-input request selected by an agent.
+ * It never evaluates model-authored code, HTML, styles, URLs, or handlers.
+ */
+export function AgentGenerativeUI({
+  request,
+  state = "pending",
+  response,
+  error,
+  disabled = false,
+  theme,
+  renderers,
+  onSubmit,
+  className,
+  style,
+}: AgentGenerativeUIProps) {
+  const { colors } = usePresentationTheme(theme);
+  const inactive = disabled || state !== "pending";
+  const submit = (next: AgentUIResponse) => {
+    if (!inactive) void onSubmit(next);
+  };
+  const custom = renderers?.[request.kind];
+  const controlProps: AgentUIRendererProps = {
+    request,
+    state,
+    ...(response === undefined ? {} : { response }),
+    disabled: inactive,
+    submit,
+  };
+
+  return (
+    <section
+      className={className}
+      data-codespring-agent-ui={request.kind}
+      aria-labelledby={`agent-ui-${request.requestId}`}
+      style={{
+        overflow: "hidden",
+        border: `1px solid ${colors.hairline}`,
+        borderRadius: colors.containerRadius,
+        background: colors.canvas,
+        color: colors.ink,
+        ...style,
+      }}
+    >
+      <header style={{ padding: "12px 14px 10px", borderBottom: `1px solid ${colors.hairline}` }}>
+        <h3 id={`agent-ui-${request.requestId}`} style={{ margin: 0, fontSize: 13, fontWeight: 650, lineHeight: 1.4 }}>
+          {request.title}
+        </h3>
+        {request.description ? (
+          <p style={{ margin: "4px 0 0", color: colors.inkSecondary, fontSize: 12, lineHeight: 1.5 }}>
+            {request.description}
+          </p>
+        ) : null}
+      </header>
+      <div style={{ padding: 10 }}>
+        {custom ? custom(controlProps) : (
+          <DefaultAgentUIControl
+            {...controlProps}
+            colors={colors}
+          />
+        )}
+        {state === "resolved" ? (
+          <p role="status" style={{ margin: "9px 4px 1px", color: colors.statusGood, fontSize: 11 }}>
+            Response recorded
+          </p>
+        ) : null}
+        {error ? (
+          <p role="alert" style={{ margin: "9px 4px 1px", color: colors.statusBad, fontSize: 11 }}>
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function DefaultAgentUIControl(props: AgentUIRendererProps & { colors: AgentTheme }) {
+  switch (props.request.kind) {
+    case "choice":
+      return <ChoiceAgentUI {...props} request={props.request}/>;
+    case "multi_select":
+      return <MultiSelectAgentUI {...props} request={props.request}/>;
+    case "form":
+      return <FormAgentUI {...props} request={props.request}/>;
+    case "review":
+      return <ReviewAgentUI {...props} request={props.request}/>;
+  }
+}
+
+type ControlProps<T extends AgentUIRequest> = Omit<AgentUIRendererProps, "request"> & {
+  request: T;
+  colors: AgentTheme;
+};
+
+function actionStyle(colors: AgentTheme, primary = false): CSSProperties {
+  return {
+    minHeight: 30,
+    padding: "5px 10px",
+    border: `1px solid ${primary ? colors.ink : colors.hairline}`,
+    borderRadius: 7,
+    background: primary ? colors.ink : "transparent",
+    color: primary ? colors.canvas : colors.ink,
+    font: `500 12px/1.4 ${colors.fontFamily}`,
+    cursor: "pointer",
+  };
+}
+
+function ChoiceAgentUI({ request, response, disabled, submit, colors }: ControlProps<Extract<AgentUIRequest, { kind: "choice" }>>) {
+  const selected = response?.kind === "choice" ? response.value : null;
+  return <div style={{ display: "grid", gap: 3 }}>
+    {request.options.map((option) => (
+      <button
+        key={option.id}
+        type="button"
+        disabled={disabled}
+        onClick={() => submit({ requestId: request.requestId, kind: "choice", value: option.id })}
+        aria-pressed={selected === option.id}
+        style={{ ...actionStyle(colors), padding: "8px 10px", textAlign: "left", background: selected === option.id ? colors.well : "transparent", opacity: disabled && selected !== option.id ? 0.5 : 1 }}
+      >
+        <span style={{ display: "block", fontWeight: 600 }}>{option.label}</span>
+        {option.description ? <span style={{ display: "block", marginTop: 2, color: colors.inkTertiary, fontSize: 11 }}>{option.description}</span> : null}
+      </button>
+    ))}
+  </div>;
+}
+
+function MultiSelectAgentUI({ request, response, disabled, submit, colors }: ControlProps<Extract<AgentUIRequest, { kind: "multi_select" }>>) {
+  const resolvedValues = response?.kind === "multi_select" ? response.value : [];
+  const [selected, setSelected] = useState<string[]>(resolvedValues);
+  useEffect(() => setSelected(resolvedValues), [request.requestId, response]);
+  const minimum = request.minimum ?? 0;
+  const maximum = request.maximum ?? request.options.length;
+  return <div>
+    <div style={{ display: "grid", gap: 3 }}>
+      {request.options.map((option) => {
+        const checked = selected.includes(option.id);
+        return <label key={option.id} style={{ display: "flex", gap: 8, padding: "7px 9px", borderRadius: 7, color: disabled ? colors.inkTertiary : colors.ink, cursor: disabled ? "default" : "pointer" }}>
+          <input
+            type="checkbox"
+            checked={checked}
+            disabled={disabled || (!checked && selected.length >= maximum)}
+            onChange={() => setSelected((current) => checked ? current.filter((id) => id !== option.id) : [...current, option.id])}
+            style={{ marginTop: 2, accentColor: colors.accent }}
+          />
+          <span><span style={{ display: "block", fontSize: 12, fontWeight: 600 }}>{option.label}</span>{option.description ? <span style={{ display: "block", color: colors.inkTertiary, fontSize: 11 }}>{option.description}</span> : null}</span>
+        </label>;
+      })}
+    </div>
+    <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 9 }}>
+      <button type="button" disabled={disabled || selected.length < minimum} onClick={() => submit({ requestId: request.requestId, kind: "multi_select", value: selected })} style={{ ...actionStyle(colors, true), opacity: disabled || selected.length < minimum ? 0.45 : 1 }}>
+        {request.submitLabel ?? "Continue"}
+      </button>
+    </div>
+  </div>;
+}
+
+function FormAgentUI({ request, response, disabled, submit, colors }: ControlProps<Extract<AgentUIRequest, { kind: "form" }>>) {
+  const initialValues = response?.kind === "form"
+    ? response.value
+    : Object.fromEntries(request.fields.map((field) => [field.id, field.value]));
+  const [values, setValues] = useState<Record<string, string>>(initialValues);
+  useEffect(() => setValues(initialValues), [request, response]);
+  const valid = request.fields.every((field) => !field.required || values[field.id]?.trim());
+  const inputStyle: CSSProperties = { width: "100%", boxSizing: "border-box", marginTop: 4, padding: "7px 9px", border: `1px solid ${colors.hairline}`, borderRadius: 7, background: colors.well, color: colors.ink, font: `400 12px/1.5 ${colors.fontFamily}` };
+  return <form onSubmit={(event) => { event.preventDefault(); if (valid) submit({ requestId: request.requestId, kind: "form", value: values }); }}>
+    <div style={{ display: "grid", gap: 10 }}>
+      {request.fields.map((field) => <label key={field.id} style={{ color: colors.inkSecondary, fontSize: 11 }}>
+        {field.label}
+        {field.format === "multiline"
+          ? <textarea disabled={disabled} required={field.required} value={values[field.id] ?? ""} onChange={(event) => setValues((current) => ({ ...current, [field.id]: event.target.value }))} rows={3} style={{ ...inputStyle, resize: "vertical", fontFamily: colors.fontFamily }}/>
+          : (
+              <input disabled={disabled} required={field.required} value={values[field.id] ?? ""} onChange={(event) => setValues((current) => ({ ...current, [field.id]: event.target.value }))} style={{ ...inputStyle, fontFamily: field.format === "slug" ? colors.monoFamily : colors.fontFamily }}/>
+            )}
+        {field.description ? <span style={{ display: "block", marginTop: 3, color: colors.inkTertiary }}>{field.description}</span> : null}
+      </label>)}
+    </div>
+    <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
+      <button type="submit" disabled={disabled || !valid} style={{ ...actionStyle(colors, true), opacity: disabled || !valid ? 0.45 : 1 }}>{request.submitLabel ?? "Continue"}</button>
+    </div>
+  </form>;
+}
+
+function ReviewAgentUI({ request, disabled, submit, colors }: ControlProps<Extract<AgentUIRequest, { kind: "review" }>>) {
+  return <div>
+    <dl style={{ display: "grid", gap: 7, margin: 0 }}>
+      {request.items.map((item) => <div key={item.id} style={{ display: "grid", gridTemplateColumns: "minmax(90px, 0.4fr) minmax(0, 1fr)", gap: 10 }}><dt style={{ color: colors.inkTertiary, fontSize: 11 }}>{item.label}</dt><dd style={{ margin: 0, color: colors.ink, fontSize: 12, overflowWrap: "anywhere" }}>{item.value}</dd></div>)}
+    </dl>
+    <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10, paddingTop: 9, borderTop: `1px solid ${colors.hairline}` }}>
+      <button type="button" disabled={disabled} onClick={() => submit({ requestId: request.requestId, kind: "review", value: "approved" })} style={{ ...actionStyle(colors, true), opacity: disabled ? 0.45 : 1 }}>{request.submitLabel ?? "Approve"}</button>
+    </div>
+  </div>;
+}
+
 
 export function useAgentClient(): AgentClient {
   return useAgentContext().client;

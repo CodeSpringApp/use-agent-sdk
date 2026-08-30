@@ -62,8 +62,11 @@ class Transport {
 
   constructor(private readonly options: TransportOptions) {
     this.endpoint = normalizeEndpoint(options.endpoint);
-    this.fetchImplementation = options.fetch ?? globalThis.fetch;
-    if (!this.fetchImplementation) throw new TypeError("A fetch implementation is required");
+    const fetchImplementation = options.fetch ?? globalThis.fetch;
+    if (!fetchImplementation) throw new TypeError("A fetch implementation is required");
+    this.fetchImplementation = options.fetch
+      ? fetchImplementation
+      : fetchImplementation.bind(globalThis);
   }
 
   async request<T>(path: string, init: RequestInit = {}): Promise<T> {

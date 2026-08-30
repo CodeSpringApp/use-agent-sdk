@@ -843,7 +843,7 @@ export function createAgentClient({
   return createBrowserClient({
     endpoint,
     getClientToken: async () => {
-      const request = fetchImplementation ?? globalThis.fetch;
+      const request = fetchImplementation ?? globalThis.fetch?.bind(globalThis);
       if (!request) throw new TypeError("A fetch implementation is required");
       const response = await request(clientTokenEndpoint, {
         method: "POST",

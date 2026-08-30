@@ -54,6 +54,41 @@ describe("React SDK", () => {
     expect(requests).toEqual(["/api/agents/token", "http://localhost:8787/browser/v1/sessions/session-1"]);
   });
 
+  test("preserves the global receiver for browser fetch requests", async () => {
+    const originalFetch = globalThis.fetch;
+    const requests: string[] = [];
+    globalThis.fetch = (async function (this: typeof globalThis, input, init) {
+      expect(this).toBe(globalThis);
+      requests.push(String(input));
+      if (String(input) === "/api/agents/token") {
+        return Response.json({ token: "client-token", expiresAt: Date.now() + 300_000 });
+      }
+      expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer client-token");
+      return Response.json({
+        sessionId: "session-1",
+        agentRevisionId: "support@7",
+        createdAt: base.createdAt,
+        updatedAt: base.createdAt,
+        cursor: 0,
+        turns: [],
+      });
+    }) as typeof fetch;
+
+    try {
+      const client = createAgentClient({
+        endpoint: "http://localhost:8787/browser",
+        clientTokenEndpoint: "/api/agents/token",
+      });
+      await client.sessions.get("session-1").get();
+      expect(requests).toEqual([
+        "/api/agents/token",
+        "http://localhost:8787/browser/v1/sessions/session-1",
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("pins Ferb Paper light and dark palettes", () => {
     expect(agentThemeVariables.accent).toBe("--codespring-agent-accent");
     expect(agentThemeVariables.contentMaxWidth).toBe("--codespring-agent-content-max-width");

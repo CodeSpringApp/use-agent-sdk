@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.6.1 — 2026-08-31
+
+- Preserve the required browser receiver when the SDK uses the global `fetch`
+  implementation for client-token and runtime requests.
+
 ## 0.6.0 — 2026-08-31
 
 - Replace the hand-written assistant Markdown parser with Streamdown for

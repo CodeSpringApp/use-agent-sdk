@@ -552,7 +552,7 @@ function formatUserCode(value: string): string {
 }
 
 function fetchFor(dependencies: CliAuthDependencies): typeof fetch {
-  return dependencies.fetch ?? globalThis.fetch;
+  return dependencies.fetch ?? globalThis.fetch.bind(globalThis);
 }
 
 class OAuthResponseError extends Error {

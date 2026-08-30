@@ -51,6 +51,49 @@ export interface ListEventsResponse {
   hasMore: boolean;
 }
 
+export interface CreateWebSocketTicketResponse {
+  ticket: string;
+  expiresAt: string;
+}
+
+export type WebSocketServerMessage =
+  | { type: "event"; event: AgentEvent }
+  | { type: "replay.completed"; cursor: number; hasMore: boolean }
+  | { type: "error"; code: string; message: string };
+
+export interface AgentWebSocketEventMap {
+  open: Event;
+  message: MessageEvent;
+  error: Event;
+  close: CloseEvent;
+}
+
+export interface AgentWebSocket {
+  readonly readyState: number;
+  addEventListener<K extends keyof AgentWebSocketEventMap>(
+    type: K,
+    listener: (event: AgentWebSocketEventMap[K]) => void,
+  ): void;
+  send(data: string): void;
+  close(code?: number, reason?: string): void;
+}
+
+export type AgentWebSocketFactory = (url: string) => AgentWebSocket;
+
+export interface AgentConnectionOptions {
+  after?: number;
+  signal?: AbortSignal;
+  onEvent: (event: AgentEvent) => void;
+  onReplayComplete?: (cursor: number) => void;
+  onError?: (error: Error) => void;
+  onClose?: (event: CloseEvent) => void;
+}
+
+export interface AgentConnection {
+  readonly cursor: number;
+  close(code?: number, reason?: string): void;
+}
+
 /** Tenant-scoped model profile configured in the CodeSpring control plane. */
 export type ModelProfileId = string;
 
@@ -116,6 +159,8 @@ export interface BrowserAgentClientOptions {
   /** Refresh before expiry. Defaults to 30 seconds and is bounded for short tokens. */
   refreshSkewMs?: number;
   fetch?: FetchLike;
+  /** Injectable for tests or non-DOM browser runtimes. Defaults to the global WebSocket constructor. */
+  webSocket?: AgentWebSocketFactory;
 }
 
 export type ClientTokenResult =

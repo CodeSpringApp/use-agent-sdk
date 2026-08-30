@@ -75,6 +75,12 @@ The `/browser` endpoint is intentional: it accepts only short-lived client
 tokens and is the only runtime surface with browser CORS. Server API keys stay
 on the endpoint root and must never be shipped to a browser.
 
+The React session store loads durable history, then switches to a live
+WebSocket using a 30-second, single-use ticket. It keeps one contiguous event
+cursor, removes replay/live duplicates, repairs gaps over HTTP, and reconnects
+with bounded jitter. `useAgentSession` exposes `connection` as `idle`,
+`connecting`, `live`, `reconnecting`, or `closed` for custom status UI.
+
 The default Paper experience renders assistant replies as document content on
 an edge-to-edge canvas, user messages as quiet trailing wells, tool calls as
 compact inspectable activity rows, and the live-edge composer without a shadow.
@@ -152,6 +158,28 @@ mixed with client-owned components.
 
 The browser entrypoint never accepts an API key. A trusted application backend
 must issue short-lived, origin-bound client tokens.
+
+For a non-React browser UI, connect to the same durable stream directly:
+
+```ts
+const session = agentClient.sessions.get(sessionId);
+const connection = await session.connect({
+  after: lastAppliedCursor,
+  onEvent(event) {
+    // Persist or reduce the event, then advance lastAppliedCursor.
+  },
+  onReplayComplete(cursor) {
+    console.log("Live at", cursor);
+  },
+});
+
+connection.close();
+```
+
+The SDK performs the authenticated ticket exchange and automatically follows
+multi-page WebSocket replay. `AgentEventBuffer` is available to headless
+clients that want the same contiguous-cursor, deduplication, and gap-detection
+rules as the React store.
 
 ## Local showcase
 

@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { createAgent, createBrowserClient, createClient } from "../src";
+import {
+  createAgent,
+  createBrowserClient,
+  createClient,
+  type AgentWebSocket,
+  type AgentWebSocketEventMap,
+} from "../src";
 
 describe("public SDK", () => {
   test("createAgent returns a stable revision reference", () => {
@@ -111,4 +117,109 @@ describe("public SDK", () => {
       }),
     );
   });
+
+  test("exchanges a browser token for a cursor-bound WebSocket ticket", async () => {
+    const requests: Request[] = [];
+    let socket: FakeWebSocket | undefined;
+    const received: number[] = [];
+    const replayCursors: number[] = [];
+    const client = createBrowserClient({
+      endpoint: "http://localhost:8787/browser",
+      getClientToken: async () => "client-token",
+      fetch: async (input, init) => {
+        requests.push(new Request(input, init));
+        return Response.json(
+          { ticket: "opaque-ticket", expiresAt: new Date(Date.now() + 30_000).toISOString() },
+          { status: 201 },
+        );
+      },
+      webSocket: (url) => {
+        socket = new FakeWebSocket(url);
+        queueMicrotask(() => socket?.open());
+        return socket;
+      },
+    });
+
+    const connection = await client.sessions.get("session-1").connect({
+      after: 4,
+      onEvent: (event) => received.push(event.id),
+      onReplayComplete: (cursor) => replayCursors.push(cursor),
+    });
+
+    expect(await requests[0]?.json()).toEqual({ after: 4 });
+    expect(requests[0]?.headers.get("Authorization")).toBe("Bearer client-token");
+    expect(socket?.url).toBe(
+      "ws://localhost:8787/browser/v1/sessions/session-1/connect?ticket=opaque-ticket",
+    );
+    expect(socket?.url).not.toContain("client-token");
+
+    socket?.message({
+      type: "event",
+      event: eventWithId(5),
+    });
+    socket?.message({ type: "replay.completed", cursor: 5, hasMore: true });
+    expect(socket?.sent).toEqual([JSON.stringify({ type: "replay", after: 5 })]);
+    socket?.message({
+      type: "event",
+      event: eventWithId(6),
+    });
+    socket?.message({ type: "replay.completed", cursor: 6, hasMore: false });
+
+    expect(received).toEqual([5, 6]);
+    expect(replayCursors).toEqual([6]);
+    expect(connection.cursor).toBe(6);
+  });
 });
+
+function eventWithId(id: number) {
+  return {
+    schemaVersion: 1,
+    id,
+    sessionId: "session-1",
+    attempt: 1,
+    type: "message.delta",
+    createdAt: "2026-08-30T00:00:00.000Z",
+    data: { delta: String(id) },
+  };
+}
+
+class FakeWebSocket implements AgentWebSocket {
+  readyState = 0;
+  readonly sent: string[] = [];
+  private readonly listeners = new Map<keyof AgentWebSocketEventMap, Set<(event: Event) => void>>();
+
+  constructor(readonly url: string) {}
+
+  addEventListener<K extends keyof AgentWebSocketEventMap>(
+    type: K,
+    listener: (event: AgentWebSocketEventMap[K]) => void,
+  ): void {
+    const listeners = this.listeners.get(type) ?? new Set<(event: Event) => void>();
+    listeners.add(listener as (event: Event) => void);
+    this.listeners.set(type, listeners);
+  }
+
+  send(data: string): void {
+    this.sent.push(data);
+  }
+
+  close(): void {
+    this.readyState = 3;
+  }
+
+  open(): void {
+    this.readyState = 1;
+    this.emit("open", new Event("open"));
+  }
+
+  message(value: unknown): void {
+    this.emit("message", new MessageEvent("message", { data: JSON.stringify(value) }));
+  }
+
+  private emit<K extends keyof AgentWebSocketEventMap>(
+    type: K,
+    event: AgentWebSocketEventMap[K],
+  ): void {
+    for (const listener of this.listeners.get(type) ?? []) listener(event);
+  }
+}

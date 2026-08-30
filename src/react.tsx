@@ -12,8 +12,15 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { createBrowserClient, type AgentClient, type AgentSession } from "./client";
+import {
+  AgentError,
+  createBrowserClient,
+  type AgentClient,
+  type AgentSession,
+} from "./client";
+import { AgentEventBuffer } from "./event-buffer";
 import type {
+  AgentConnection,
   AgentEvent,
   BrowserAgentClientOptions,
   SessionSnapshot,
@@ -270,6 +277,7 @@ export interface CreateAgentClientOptions {
   credentials?: RequestCredentials;
   clientTokenTtlMs?: number;
   refreshSkewMs?: number;
+  webSocket?: BrowserAgentClientOptions["webSocket"];
 }
 
 /** Creates one stable browser client with an in-memory, deduplicated client-token cache. */
@@ -280,6 +288,7 @@ export function createAgentClient({
   credentials = "same-origin",
   clientTokenTtlMs,
   refreshSkewMs,
+  webSocket,
 }: CreateAgentClientOptions): AgentClient {
   return createBrowserClient({
     endpoint,
@@ -306,6 +315,7 @@ export function createAgentClient({
     ...(fetchImplementation === undefined ? {} : { fetch: fetchImplementation }),
     ...(clientTokenTtlMs === undefined ? {} : { clientTokenTtlMs }),
     ...(refreshSkewMs === undefined ? {} : { refreshSkewMs }),
+    ...(webSocket === undefined ? {} : { webSocket }),
   });
 }
 
@@ -544,6 +554,7 @@ function toolLifecycle(type: string): "proposed" | "started" | "completed" | "fa
 
 interface SessionState {
   status: "idle" | "loading" | "ready" | "error";
+  connection: "idle" | "connecting" | "live" | "reconnecting" | "closed";
   snapshot: SessionSnapshot | null;
   events: AgentEvent[];
   messages: AgentChatMessage[];
@@ -553,6 +564,7 @@ interface SessionState {
 
 const initialSessionState: SessionState = {
   status: "idle",
+  connection: "idle",
   snapshot: null,
   events: [],
   messages: [],
@@ -563,8 +575,12 @@ const initialSessionState: SessionState = {
 class SessionStore {
   private state: SessionState = initialSessionState;
   private readonly listeners = new Set<() => void>();
+  private readonly eventBuffer = new AgentEventBuffer();
   private controller: AbortController | null = null;
-  private refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private connection: AgentConnection | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private generation = 0;
+  private reconnectAttempt = 0;
 
   constructor(readonly session: AgentSession) {}
 
@@ -574,9 +590,7 @@ class SessionStore {
     return () => {
       this.listeners.delete(listener);
       if (this.listeners.size === 0) {
-        this.controller?.abort();
-        if (this.refreshTimer) clearTimeout(this.refreshTimer);
-        this.refreshTimer = null;
+        this.stop();
       }
     };
   };
@@ -589,65 +603,251 @@ class SessionStore {
     for (const listener of this.listeners) listener();
   }
 
-  private scheduleRefresh() {
-    if (this.refreshTimer) clearTimeout(this.refreshTimer);
-    const isWorking = this.state.snapshot?.turns.some(
-      (turn) => turn.status === "queued" || turn.status === "running",
-    );
-    this.refreshTimer =
-      isWorking && this.listeners.size > 0
-        ? setTimeout(() => void this.refresh(), 1_000)
-        : null;
-  }
-
   async refresh() {
+    const generation = ++this.generation;
     this.controller?.abort();
+    this.connection?.close(1000, "refreshing");
+    this.connection = null;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
     this.controller = new AbortController();
     const { signal } = this.controller;
     this.setState({
       ...this.state,
       status: this.state.snapshot ? "ready" : "loading",
+      connection: "connecting",
       error: null,
     });
     try {
       const snapshot = await this.session.get({ signal });
-      const events: AgentEvent[] = [];
-      let cursor = 0;
+      if (snapshot.cursor < this.eventBuffer.cursor) this.eventBuffer.reset();
+      await this.replayDurableEvents(signal);
+      if (signal.aborted || generation !== this.generation) return;
+      this.publishBuffer(snapshot, "connecting");
+      await this.openLiveConnection(generation, signal);
+    } catch (error) {
+      if (signal.aborted || generation !== this.generation) return;
+      this.scheduleReconnect(error);
+    }
+  }
+
+  private async replayDurableEvents(signal: AbortSignal): Promise<void> {
+    let cursor = this.eventBuffer.cursor;
       let hasMore = true;
       let pages = 0;
       while (hasMore && pages < 100) {
         const page = await this.session.events(cursor, 100, { signal });
-        events.push(...page.events);
-        cursor = page.cursor;
+      const merged = this.eventBuffer.merge(page.events);
+      if (merged.gap) {
+        throw new AgentError(
+          `Durable event gap: expected ${merged.gap.expected}, received ${merged.gap.received}`,
+          0,
+          "event_gap",
+        );
+      }
+      if (page.hasMore && page.cursor <= cursor) {
+        throw new AgentError("Durable replay did not advance", 0, "replay_stalled");
+      }
+      cursor = this.eventBuffer.cursor;
         hasMore = page.hasMore;
         pages += 1;
       }
-      if (hasMore) throw new Error("Conversation history exceeds the current 10,000-event UI limit");
-      this.setState({
-        status: "ready",
-        snapshot,
-        events,
-        messages: reduceAgentMessages(events),
-        toolCalls: reduceAgentToolCalls(events),
-        error: null,
-      });
-      this.scheduleRefresh();
-    } catch (error) {
-      if (signal.aborted) return;
-      this.setState({
-        ...this.state,
-        status: "error",
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-      this.scheduleRefresh();
+    if (hasMore) {
+      throw new AgentError(
+        "Conversation history exceeds the current 10,000-event UI limit",
+        0,
+        "history_limit_exceeded",
+      );
     }
   }
 
-  dispose() {
-    this.controller?.abort();
-    if (this.refreshTimer) clearTimeout(this.refreshTimer);
-    this.refreshTimer = null;
+  private async openLiveConnection(
+    generation: number,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const connection = await this.session.connect({
+      after: this.eventBuffer.cursor,
+      signal,
+      onEvent: (event) => this.receiveLiveEvent(event, generation),
+      onReplayComplete: (cursor) => {
+        if (generation !== this.generation || signal.aborted) return;
+        if (cursor > this.eventBuffer.cursor) {
+          const active = this.connection;
+          this.connection = null;
+          active?.close(1012, "repairing event gap");
+          this.scheduleReconnect(
+            new AgentError("Live replay ended ahead of the local cursor", 0, "event_gap"),
+            true,
+          );
+          return;
+        }
+        this.reconnectAttempt = 0;
+        this.setState({ ...this.state, connection: "live", error: null });
+      },
+      onError: (error) => {
+        if (generation === this.generation && !signal.aborted) {
+          this.setState({ ...this.state, error });
+        }
+      },
+      onClose: () => {
+        if (
+          generation === this.generation &&
+          !signal.aborted &&
+          this.connection !== null
+        ) {
+          this.connection = null;
+          this.scheduleReconnect(
+            new AgentError("Live connection closed", 0, "websocket_closed"),
+          );
+        }
+      },
+    });
+    if (signal.aborted || generation !== this.generation) {
+      connection.close(1000, "stale connection");
+      return;
+    }
+    this.connection = connection;
   }
+
+  private receiveLiveEvent(event: AgentEvent, generation: number): void {
+    if (generation !== this.generation) return;
+    if (event.sessionId !== this.session.id) {
+      const active = this.connection;
+      this.connection = null;
+      active?.close(1008, "wrong session event");
+      this.setState({
+        ...this.state,
+        status: "error",
+        connection: "closed",
+        error: new AgentError("Runtime returned an event for another session", 0, "invalid_event"),
+      });
+      return;
+    }
+    const merged = this.eventBuffer.merge([event]);
+    const snapshot = merged.accepted.reduce(
+      (current, accepted) => applyEventToSnapshot(current, accepted),
+      this.state.snapshot,
+    );
+    this.publishBuffer(snapshot, this.state.connection);
+    if (merged.gap) {
+      const active = this.connection;
+      this.connection = null;
+      active?.close(1012, "repairing event gap");
+      this.scheduleReconnect(
+        new AgentError(
+          `Live event gap: expected ${merged.gap.expected}, received ${merged.gap.received}`,
+          0,
+          "event_gap",
+        ),
+        true,
+      );
+    }
+  }
+
+  private publishBuffer(
+    snapshot: SessionSnapshot | null,
+    connection: SessionState["connection"],
+  ): void {
+    const events = [...this.eventBuffer.events];
+    this.setState({
+      status: snapshot ? "ready" : this.state.status,
+      connection,
+      snapshot,
+      events,
+      messages: reduceAgentMessages(events),
+      toolCalls: reduceAgentToolCalls(events),
+      error: null,
+    });
+  }
+
+  private scheduleReconnect(error: unknown, immediate = false): void {
+    if (this.listeners.size === 0) return;
+    const normalized = error instanceof Error ? error : new Error(String(error));
+    if (isPermanentConnectionError(normalized)) {
+      this.setState({
+        ...this.state,
+        status: "error",
+        connection: "closed",
+        error: normalized,
+      });
+      return;
+    }
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    const exponent = Math.min(this.reconnectAttempt, 5);
+    const delay = immediate
+      ? 0
+      : Math.round(Math.min(10_000, 400 * 2 ** exponent) * (0.75 + Math.random() * 0.5));
+    this.reconnectAttempt += 1;
+    this.setState({
+      ...this.state,
+      status: this.state.snapshot ? "ready" : "error",
+      connection: "reconnecting",
+      error: this.state.snapshot ? null : normalized,
+    });
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      void this.refresh();
+    }, delay);
+  }
+
+  private stop(): void {
+    this.generation += 1;
+    this.controller?.abort();
+    this.controller = null;
+    this.connection?.close(1000, "no subscribers");
+    this.connection = null;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+  }
+
+  dispose() {
+    this.stop();
+  }
+}
+
+function isPermanentConnectionError(error: Error): boolean {
+  return (
+    error instanceof AgentError &&
+    (error.status === 401 || error.status === 403 || error.status === 404)
+  );
+}
+
+function applyEventToSnapshot(
+  snapshot: SessionSnapshot | null,
+  event: AgentEvent,
+): SessionSnapshot | null {
+  if (!snapshot) return null;
+  const status = turnStatusForEvent(event.type);
+  if (!status || !event.turnId) {
+    return event.id > snapshot.cursor ? { ...snapshot, cursor: event.id } : snapshot;
+  }
+  const existing = snapshot.turns.find((turn) => turn.id === event.turnId);
+  const turn = {
+    id: event.turnId,
+    status,
+    attempt: event.attempt,
+    createdAt: existing?.createdAt ?? event.createdAt,
+    updatedAt: event.createdAt,
+  };
+  return {
+    ...snapshot,
+    updatedAt: event.createdAt,
+    cursor: Math.max(snapshot.cursor, event.id),
+    turns: existing
+      ? snapshot.turns.map((candidate) =>
+          candidate.id === event.turnId ? turn : candidate,
+        )
+      : [...snapshot.turns, turn],
+  };
+}
+
+function turnStatusForEvent(type: string): SessionSnapshot["turns"][number]["status"] | null {
+  if (type === "turn.queued") return "queued";
+  if (type === "turn.started") return "running";
+  if (type === "turn.completed") return "completed";
+  if (type === "turn.failed") return "failed";
+  if (type === "turn.cancelled") return "cancelled";
+  return null;
 }
 
 export interface AgentSessionResult extends SessionState {

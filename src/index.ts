@@ -7,3 +7,4 @@ export {
   createClient,
 } from "./client";
 export type * from "./types";
+export { AgentEventBuffer, type AgentEventMergeResult } from "./event-buffer";

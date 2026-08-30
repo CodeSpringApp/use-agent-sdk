@@ -1,6 +1,9 @@
 import type {
   AgentDefinition,
+  AgentConnection,
+  AgentConnectionOptions,
   BrowserAgentClientOptions,
+  CreateWebSocketTicketResponse,
   CreateSessionResponse,
   FetchLike,
   ListEventsResponse,
@@ -9,7 +12,10 @@ import type {
   SubmitOptions,
   SubmitTurnResponse,
   AgentClientOptions,
+  AgentEvent,
+  AgentWebSocketFactory,
   ClientTokenResult,
+  WebSocketServerMessage,
 } from "./types";
 
 export class AgentError extends Error {
@@ -34,6 +40,8 @@ interface TransportOptions {
   endpoint: string;
   token: TokenProvider;
   fetch?: FetchLike;
+  webSocket?: AgentWebSocketFactory;
+  browser: boolean;
 }
 
 class Transport {
@@ -64,6 +72,107 @@ class Transport {
       );
     }
     return payload as T;
+  }
+
+  async connectSession(
+    sessionId: string,
+    options: AgentConnectionOptions,
+  ): Promise<AgentConnection> {
+    if (!this.options.browser) {
+      throw new TypeError("Browser WebSocket connections require createBrowserClient");
+    }
+    const after = options.after ?? 0;
+    if (!Number.isSafeInteger(after) || after < 0) {
+      throw new TypeError("after must be a non-negative safe integer");
+    }
+    const issued = await this.request<CreateWebSocketTicketResponse>(
+      `/v1/sessions/${encodeURIComponent(sessionId)}/websocket-tickets`,
+      {
+        method: "POST",
+        body: JSON.stringify({ after }),
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+      },
+    );
+    const socketUrl = new URL(
+      `${this.endpoint}/v1/sessions/${encodeURIComponent(sessionId)}/connect`,
+    );
+    socketUrl.protocol = socketUrl.protocol === "https:" ? "wss:" : "ws:";
+    socketUrl.searchParams.set("ticket", issued.ticket);
+    const createSocket = this.options.webSocket ?? defaultWebSocketFactory;
+    const socket = createSocket(socketUrl.toString());
+    let cursor = after;
+    let opened = false;
+    let settled = false;
+
+    return new Promise<AgentConnection>((resolve, reject) => {
+      const connection: AgentConnection = {
+        get cursor() {
+          return cursor;
+        },
+        close: (code = 1000, reason = "client closed") => socket.close(code, reason),
+      };
+      const failBeforeOpen = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        reject(error);
+      };
+
+      socket.addEventListener("open", () => {
+        opened = true;
+        if (settled) return;
+        settled = true;
+        resolve(connection);
+      });
+      socket.addEventListener("message", (message) => {
+        try {
+          const parsed = parseWebSocketServerMessage(message.data);
+          if (parsed.type === "event") {
+            cursor = Math.max(cursor, parsed.event.id);
+            options.onEvent(parsed.event);
+            return;
+          }
+          if (parsed.type === "replay.completed") {
+            cursor = Math.max(cursor, parsed.cursor);
+            if (parsed.hasMore) {
+              socket.send(JSON.stringify({ type: "replay", after: cursor }));
+            } else {
+              options.onReplayComplete?.(cursor);
+            }
+            return;
+          }
+          const error = new AgentError(parsed.message, 0, parsed.code);
+          options.onError?.(error);
+          socket.close(1008, "server rejected connection");
+        } catch (error) {
+          const normalized = error instanceof Error ? error : new Error(String(error));
+          options.onError?.(normalized);
+          socket.close(1008, "invalid server message");
+          if (!opened) failBeforeOpen(normalized);
+        }
+      });
+      socket.addEventListener("error", () => {
+        const error = new AgentError("WebSocket connection failed", 0, "websocket_failed");
+        options.onError?.(error);
+        if (!opened) failBeforeOpen(error);
+      });
+      socket.addEventListener("close", (event) => {
+        options.onClose?.(event);
+        if (!opened) {
+          failBeforeOpen(
+            new AgentError(
+              "WebSocket closed before connecting",
+              0,
+              "websocket_closed",
+            ),
+          );
+        }
+      });
+      if (options.signal) {
+        const closeForAbort = () => socket.close(1000, "request aborted");
+        if (options.signal.aborted) closeForAbort();
+        else options.signal.addEventListener("abort", closeForAbort, { once: true });
+      }
+    });
   }
 
   private async fetchWithToken(path: string, init: RequestInit): Promise<Response> {
@@ -211,6 +320,10 @@ export class AgentSession {
       },
     );
   }
+
+  connect(options: AgentConnectionOptions): Promise<AgentConnection> {
+    return this.transport.connectSession(this.id, options);
+  }
 }
 
 export interface TurnStatusResponse {
@@ -242,6 +355,7 @@ export function createClient(options: AgentClientOptions): AgentClient {
     new Transport({
       endpoint: options.endpoint,
       token: staticTokenProvider(options.apiKey),
+      browser: false,
       ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
     }),
   );
@@ -257,7 +371,62 @@ export function createBrowserClient(options: BrowserAgentClientOptions): AgentCl
         options.clientTokenTtlMs ?? 60_000,
         options.refreshSkewMs ?? 30_000,
       ),
+      browser: true,
       ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+      ...(options.webSocket === undefined ? {} : { webSocket: options.webSocket }),
     }),
+  );
+}
+
+function defaultWebSocketFactory(url: string) {
+  if (typeof globalThis.WebSocket !== "function") {
+    throw new TypeError("A WebSocket implementation is required");
+  }
+  return new globalThis.WebSocket(url);
+}
+
+function parseWebSocketServerMessage(value: unknown): WebSocketServerMessage {
+  if (typeof value !== "string") throw new TypeError("WebSocket message must be JSON text");
+  const parsed: unknown = JSON.parse(value);
+  if (!isObject(parsed) || typeof parsed.type !== "string") {
+    throw new TypeError("WebSocket message is invalid");
+  }
+  if (parsed.type === "event" && isAgentEvent(parsed.event)) {
+    return { type: "event", event: parsed.event };
+  }
+  if (
+    parsed.type === "replay.completed" &&
+    Number.isSafeInteger(parsed.cursor) &&
+    (parsed.cursor as number) >= 0 &&
+    typeof parsed.hasMore === "boolean"
+  ) {
+    return {
+      type: "replay.completed",
+      cursor: parsed.cursor as number,
+      hasMore: parsed.hasMore,
+    };
+  }
+  if (
+    parsed.type === "error" &&
+    typeof parsed.code === "string" &&
+    typeof parsed.message === "string"
+  ) {
+    return { type: "error", code: parsed.code, message: parsed.message };
+  }
+  throw new TypeError("WebSocket message is invalid");
+}
+
+function isAgentEvent(value: unknown): value is AgentEvent {
+  return (
+    isObject(value) &&
+    value.schemaVersion === 1 &&
+    Number.isSafeInteger(value.id) &&
+    (value.id as number) > 0 &&
+    typeof value.sessionId === "string" &&
+    Number.isSafeInteger(value.attempt) &&
+    (value.attempt as number) >= 0 &&
+    typeof value.type === "string" &&
+    typeof value.createdAt === "string" &&
+    (!("turnId" in value) || typeof value.turnId === "string")
   );
 }

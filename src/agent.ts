@@ -21,7 +21,10 @@ function uniqueNames(values: readonly { name: string }[], name: string): void {
 export function createAgent(options: CreateAgentOptions): AgentDefinition {
   const id = requireIdentifier(options.id, "id");
   const revision = requireIdentifier(options.revision, "revision");
-  const tools = (options.tools ?? []).map((tool) => ({ ...tool, name: tool.name.trim() }));
+  const tools = (options.tools ?? []).map((tool) => ({
+    name: tool.name.trim(),
+    ...(tool.description === undefined ? {} : { description: tool.description }),
+  }));
   uniqueNames(tools, "tool");
 
   return Object.freeze({

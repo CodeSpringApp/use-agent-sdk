@@ -36,6 +36,90 @@ immutable policy revision while credential rotation remains independent.
 
 API keys are server-only. Do not pass the server client into a browser bundle.
 
+## Customer-hosted Node tools
+
+Advanced tools run in your application, with your dependencies, network access,
+and database clients. CodeSpring sends a short-lived signed invocation; the SDK
+verifies it before dispatching the exact published handler revision.
+
+```ts
+import {
+  createToolHandler,
+  defineTool,
+} from "@codespring-app/use-agent";
+import { db } from "./db";
+import { toolExecutionStore } from "./durable-tool-execution-store";
+
+const lookupCustomer = defineTool<{ customerId: string }, { name: string }>({
+  name: "lookup_customer",
+  revision: "2026-08-30.1",
+  description: "Look up a customer in the application database.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      customerId: { type: "string", minLength: 1, maxLength: 100 },
+    },
+    required: ["customerId"],
+    additionalProperties: false,
+  },
+  risk: "read",
+  async execute({ customerId }, context) {
+    return db.customers.findForAgent(customerId, {
+      operationId: context.operationId,
+      signal: context.signal,
+    });
+  },
+});
+
+export const POST = createToolHandler({
+  endpoint: "https://app.example.com/api/agent-tools",
+  tools: [lookupCustomer],
+  executionStore: toolExecutionStore,
+});
+```
+
+Register the matching tool in the Agents dashboard:
+
+- Executor: `Customer-hosted Node tool`
+- Endpoint: `https://app.example.com/api/agent-tools`
+- Model-visible name: `lookup_customer`
+- Handler revision: `2026-08-30.1`
+- Input schema and risk: the same values used by `defineTool`
+
+The handler is based on the standard `Request`/`Response` APIs, so the same
+function works in Next.js route handlers, Hono, Bun, and Node adapters. Keep old
+handler revisions deployed while published agents or resumable sessions can
+still reference them.
+
+A dependency-injected handler example is included at
+[`examples/customer-hosted-tool.ts`](./examples/customer-hosted-tool.ts).
+
+`executionStore` is mandatory. Its `run` method must atomically join concurrent
+calls and replay a completed result for the supplied tenant-scoped operation
+key. Use a durable database or key-value store in production. The included
+`createMemoryToolExecutionStore()` is only for local development and tests.
+
+```ts
+import {
+  createMemoryToolExecutionStore,
+  executeToolLocally,
+} from "@codespring-app/use-agent";
+
+await executeToolLocally(lookupCustomer, { customerId: "cus_123" });
+
+const localHandler = createToolHandler({
+  endpoint: "https://tools.example.test/agent-tools",
+  issuer: "https://runtime.example.test",
+  jwks: localTestJwks,
+  tools: [lookupCustomer],
+  executionStore: createMemoryToolExecutionStore(),
+});
+```
+
+Write tools receive the same stable `context.operationId`. Use it as the
+idempotency key for the underlying mutation in addition to the handler-level
+execution store. Arbitrary uploaded code is not executed by the hosted runtime.
+
 ## Plug-and-play React UI
 
 ```tsx

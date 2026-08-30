@@ -3,7 +3,7 @@
 Use the installed `@codespring-app/use-agent` package as the API source of truth.
 
 1. Inspect the project, package version, existing server/client boundaries, and framework conventions.
-2. Run `use-agent auth status --json`. If authentication is missing, ask the human to configure it; do not collect a credential in chat or place it in source.
+2. Run `use-agent auth status --json`. If authentication is missing, run `use-agent auth login` and ask the human to approve the displayed CodeSpring device code in their browser. Never ask the human to paste an access token, refresh token, provider key, or Agents API key into chat or source.
 3. Define immutable agent references with `createAgent({ id, revision })`. Runtime model routing uses reusable model IDs configured in the control plane, never raw provider/model credentials in application code.
 4. Use `createClient` only in trusted server code. Issue short-lived browser client tokens on the server and use the React client from `@codespring-app/use-agent/react` in the browser.
 5. For customer-hosted tools, load `use-agent skills get customer-tools`. For UI work, load `use-agent skills get react-ui`.

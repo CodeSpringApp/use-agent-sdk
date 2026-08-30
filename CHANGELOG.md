@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Add RFC 8628 device authorization for interactive CLI login with explicit
+  browser approval.
+- Store refresh credentials only in macOS Keychain or Linux Secret Service and
+  exchange them for short-lived, workspace- and environment-bound runtime tokens.
+- Keep environment API keys as the non-interactive CI authentication method.
+
 ## 0.4.0 — 2026-08-30
 
 - Add scoped, cursor-paginated agent and customer-tool management APIs to the

@@ -52,6 +52,7 @@ entrypoint at `@codespring-app/use-agent/cli`.
 ```sh
 npx @codespring-app/use-agent skills get app-builder
 npx @codespring-app/use-agent skills install --target codex --yes
+npx @codespring-app/use-agent auth login
 npx @codespring-app/use-agent auth status --json
 ```
 
@@ -59,11 +60,16 @@ npx @codespring-app/use-agent auth status --json
 installed discovery skill points coding agents back to this version-matched
 catalog. Source changes and remote publication remain separate permissions.
 
+For local development, `auth login` opens CodeSpring in the browser and displays
+a short verification code. The human approves the exact CLI request and account;
+the CLI stores the refresh credential in macOS Keychain or Linux Secret Service,
+never in its JSON config or project files. Use `--no-browser` on a remote shell
+and open the displayed URL yourself.
+
 For headless server/CI access, put a scoped key in
 `CODESPRING_AGENTS_API_KEY`; credentials are never accepted as command-line
-arguments. The current CLI release does not persist API keys and does not claim
-to provide browser login. Authorization Code + PKCE login will ship only with
-the matching runtime token exchange and native credential-store support.
+arguments or persisted by the CLI. An environment API key takes precedence over
+device login.
 
 ## Customer-hosted Node tools
 

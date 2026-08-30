@@ -9,4 +9,6 @@ Use CLI commands and supported API routes; do not scrape dashboard pages or acce
 - Use a fresh idempotency operation ID for each intended mutation and reuse it only when retrying that same intent.
 - Treat production writes, credential changes, archival, and disabling as consequential operations. Confirm the exact resource and environment immediately before applying them.
 
-`CODESPRING_AGENTS_API_KEY` is supported for headless server/CI inspection. Keep it in a secret store and never pass it as a CLI argument.
+Use `use-agent auth login` for interactive local work. The human must verify and approve the CodeSpring device code; do not automate or bypass that approval. The CLI keeps its refresh credential in the operating-system credential store and obtains a short-lived, environment-bound runtime token for each command.
+
+`CODESPRING_AGENTS_API_KEY` remains supported for headless server/CI inspection. Keep it in a secret store and never pass it as a CLI argument.

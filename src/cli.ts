@@ -3,6 +3,14 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { AgentError, createClient } from "./client";
+import {
+  CliAuthError,
+  type CredentialStore,
+  loadAuthenticatedCliToken,
+  loginWithDevice,
+  logoutDevice,
+  readStoredCliAuth,
+} from "./cli-auth";
 
 type Writable = { write(chunk: string): unknown };
 
@@ -11,6 +19,10 @@ export interface CliDependencies {
   stderr?: Writable;
   env?: Record<string, string | undefined>;
   homeDirectory?: string;
+  fetch?: typeof fetch;
+  sleep?: (milliseconds: number) => Promise<void>;
+  openBrowser?: (url: string) => Promise<boolean>;
+  credentialStore?: CredentialStore;
 }
 
 type SkillCatalog = {
@@ -51,34 +63,115 @@ export async function runCli(
       });
     }
 
+    if (group === "auth" && action === "login") {
+      if (environment.CODESPRING_AGENTS_API_KEY?.trim()) {
+        throw new CliError(
+          2,
+          "api_key_environment_active",
+          "Unset CODESPRING_AGENTS_API_KEY before interactive login",
+        );
+      }
+      const tenant = option(rest, "--tenant");
+      const environmentName = option(rest, "--environment");
+      const result = await loginWithDevice(
+        {
+          noBrowser: rest.includes("--no-browser"),
+          ...(tenant === undefined ? {} : { tenant }),
+          ...(environmentName === undefined
+            ? {}
+            : { environment: environmentName }),
+        },
+        authDependencies(dependencies, environment, stderr),
+      );
+      const data = {
+        authenticated: true,
+        method: "device_oauth",
+        endpoint: result.auth.runtimeEndpoint,
+        workspace: result.auth.workspaceName,
+        environment: result.auth.environmentName,
+      };
+      writeResult(
+        stdout,
+        json,
+        data,
+        `Authenticated with CodeSpring\nWorkspace: ${data.workspace}\nEnvironment: ${data.environment}\n`,
+      );
+      return 0;
+    }
+
+    if (group === "auth" && action === "logout") {
+      const removed = await logoutDevice({
+        ...(dependencies.homeDirectory === undefined
+          ? {}
+          : { homeDirectory: dependencies.homeDirectory }),
+        ...(dependencies.credentialStore === undefined
+          ? {}
+          : { credentialStore: dependencies.credentialStore }),
+      });
+      writeResult(stdout, json, { authenticated: false, removed }, removed
+        ? "Signed out of CodeSpring Agents.\n"
+        : "No saved CodeSpring Agents login was found.\n");
+      return 0;
+    }
+
     if (group === "auth" && action === "status") {
       const apiKeyConfigured = Boolean(environment.CODESPRING_AGENTS_API_KEY?.trim());
+      const stored = apiKeyConfigured
+        ? null
+        : await readStoredCliAuth({
+            ...(dependencies.homeDirectory === undefined
+              ? {}
+              : { homeDirectory: dependencies.homeDirectory }),
+            ...(dependencies.credentialStore === undefined
+              ? {}
+              : { credentialStore: dependencies.credentialStore }),
+          });
       const data = {
-        authenticated: apiKeyConfigured,
-        method: apiKeyConfigured ? "api_key_environment" : null,
-        endpoint: environment.CODESPRING_AGENTS_ENDPOINT ?? DEFAULT_ENDPOINT,
+        authenticated: apiKeyConfigured || stored !== null,
+        method: apiKeyConfigured ? "api_key_environment" : stored ? "device_oauth" : null,
+        endpoint: stored?.runtimeEndpoint ?? environment.CODESPRING_AGENTS_ENDPOINT ?? DEFAULT_ENDPOINT,
+        ...(stored
+          ? { workspace: stored.workspaceName, environment: stored.environmentName }
+          : {}),
       };
       writeResult(stdout, json, data, apiKeyConfigured
         ? `Authenticated through CODESPRING_AGENTS_API_KEY\nEndpoint: ${data.endpoint}\n`
-        : "Not authenticated. Set CODESPRING_AGENTS_API_KEY for headless use. Browser login is not available in this release.\n");
-      return apiKeyConfigured ? 0 : 3;
+        : stored
+          ? `Authenticated with CodeSpring\nWorkspace: ${stored.workspaceName}\nEnvironment: ${stored.environmentName}\n`
+          : "Not authenticated. Run use-agent auth login, or set CODESPRING_AGENTS_API_KEY for CI.\n");
+      return data.authenticated ? 0 : 3;
     }
 
     if (group === "doctor") {
       const catalog = await loadCatalog();
+      const apiKeyConfigured = Boolean(environment.CODESPRING_AGENTS_API_KEY?.trim());
+      const stored = apiKeyConfigured
+        ? null
+        : await readStoredCliAuth({
+            ...(dependencies.homeDirectory === undefined
+              ? {}
+              : { homeDirectory: dependencies.homeDirectory }),
+            ...(dependencies.credentialStore === undefined
+              ? {}
+              : { credentialStore: dependencies.credentialStore }),
+          });
       const data = {
         node: process.version,
-        endpoint: environment.CODESPRING_AGENTS_ENDPOINT ?? DEFAULT_ENDPOINT,
-        apiKeyConfigured: Boolean(environment.CODESPRING_AGENTS_API_KEY?.trim()),
+        endpoint: stored?.runtimeEndpoint ?? environment.CODESPRING_AGENTS_ENDPOINT ?? DEFAULT_ENDPOINT,
+        authenticated: apiKeyConfigured || stored !== null,
+        authMethod: apiKeyConfigured ? "api_key_environment" : stored ? "device_oauth" : null,
         skillCatalogVersion: catalog.packageVersion,
         skillCount: catalog.skills.length,
       };
-      writeResult(stdout, json, data, `Runtime endpoint: ${data.endpoint}\nAPI key: ${data.apiKeyConfigured ? "configured" : "not configured"}\nSkills: ${data.skillCount} (${data.skillCatalogVersion})\n`);
-      return data.apiKeyConfigured ? 0 : 3;
+      writeResult(stdout, json, data, `Runtime endpoint: ${data.endpoint}\nAuthentication: ${data.authMethod ?? "not configured"}\nSkills: ${data.skillCount} (${data.skillCatalogVersion})\n`);
+      return data.authenticated ? 0 : 3;
     }
 
     if ((group === "agents" || group === "tools") && (action === "list" || action === "get")) {
-      const client = authenticatedClient(environment);
+      const client = await authenticatedClient(
+        environment,
+        authDependencies(dependencies, environment, stderr),
+      );
       if (group === "agents" && action === "list") {
         const page = await client.agents.list(pageOptions(rest));
         writeResult(stdout, json, page, formatPage(page.items, "agentId", page.cursor));
@@ -159,15 +252,53 @@ async function runSkills(
   throw new CliError(2, "unknown_command", "Use skills list, skills get <name>, or skills install");
 }
 
-function authenticatedClient(environment: Record<string, string | undefined>) {
+async function authenticatedClient(
+  environment: Record<string, string | undefined>,
+  dependencies: Parameters<typeof loadAuthenticatedCliToken>[0],
+) {
   const apiKey = environment.CODESPRING_AGENTS_API_KEY?.trim();
-  if (!apiKey) {
-    throw new CliError(3, "authentication_required", "Set CODESPRING_AGENTS_API_KEY; credentials are not accepted as command arguments");
+  if (apiKey) {
+    return createClient({
+      endpoint: environment.CODESPRING_AGENTS_ENDPOINT ?? DEFAULT_ENDPOINT,
+      apiKey,
+      ...(dependencies.fetch === undefined ? {} : { fetch: dependencies.fetch }),
+    });
+  }
+  const login = await loadAuthenticatedCliToken(dependencies);
+  if (!login) {
+    throw new CliError(
+      3,
+      "authentication_required",
+      "Run use-agent auth login, or set CODESPRING_AGENTS_API_KEY for CI",
+    );
   }
   return createClient({
-    endpoint: environment.CODESPRING_AGENTS_ENDPOINT ?? DEFAULT_ENDPOINT,
-    apiKey,
+    endpoint: login.auth.runtimeEndpoint,
+    apiKey: login.token,
+    ...(dependencies.fetch === undefined ? {} : { fetch: dependencies.fetch }),
   });
+}
+
+function authDependencies(
+  dependencies: CliDependencies,
+  environment: Record<string, string | undefined>,
+  stderr: Writable,
+) {
+  return {
+    env: environment,
+    stderr,
+    ...(dependencies.homeDirectory === undefined
+      ? {}
+      : { homeDirectory: dependencies.homeDirectory }),
+    ...(dependencies.fetch === undefined ? {} : { fetch: dependencies.fetch }),
+    ...(dependencies.sleep === undefined ? {} : { sleep: dependencies.sleep }),
+    ...(dependencies.openBrowser === undefined
+      ? {}
+      : { openBrowser: dependencies.openBrowser }),
+    ...(dependencies.credentialStore === undefined
+      ? {}
+      : { credentialStore: dependencies.credentialStore }),
+  };
 }
 
 function pageOptions(args: string[]) {
@@ -256,6 +387,7 @@ class CliError extends Error {
 
 function normalizeError(error: unknown): { exitCode: number; code: string; message: string; requestId?: string } {
   if (error instanceof CliError) return { exitCode: error.exitCode, code: error.code, message: error.message };
+  if (error instanceof CliAuthError) return { exitCode: 3, code: error.code, message: error.message };
   if (error instanceof AgentError) {
     const exitCode = error.status === 401 ? 3 : error.status === 403 ? 4 : error.status === 409 ? 5 : error.status >= 500 ? 6 : 2;
     return { exitCode, code: error.code, message: error.message, ...(error.requestId ? { requestId: error.requestId } : {}) };
@@ -266,7 +398,9 @@ function normalizeError(error: unknown): { exitCode: number; code: string; messa
 const helpText = `Use Agent CLI
 
 Usage:
+  use-agent auth login [--no-browser] [--tenant ID|SLUG] [--environment ID|SLUG]
   use-agent auth status [--json]
+  use-agent auth logout [--json]
   use-agent agents list [--limit N] [--cursor CURSOR] [--json]
   use-agent agents get <agent-id> [--json]
   use-agent tools list [--limit N] [--cursor CURSOR] [--json]

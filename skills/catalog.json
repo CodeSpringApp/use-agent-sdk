@@ -6,7 +6,7 @@
       "name": "app-builder",
       "description": "Build and verify an end-to-end CodeSpring Agents application.",
       "path": "content/app-builder.md",
-      "sha256": "aa3a3af44907147a69591310d4d160f4b0002141140652ed1a0f2905e8d4d74e"
+      "sha256": "bbcac9473fa17a63c3c1241e5bbd35c21a09a2052a227d32658477daaad5a8d8"
     },
     {
       "name": "customer-tools",
@@ -24,7 +24,7 @@
       "name": "control-plane",
       "description": "Inspect and safely manage control-plane resources.",
       "path": "content/control-plane.md",
-      "sha256": "3635e424084fd6f11298331ef7922c2788b0414c39e97d63c13a34113bd96db2"
+      "sha256": "33fc5aa5ea86328ac19589ae2165d85a9b2bec47fbbf9ca96a64c73b87b05b36"
     }
   ]
 }

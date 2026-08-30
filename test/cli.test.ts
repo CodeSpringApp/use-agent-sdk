@@ -34,12 +34,15 @@ describe("Use Agent CLI", () => {
   });
 
   test("does not accept credentials as command arguments", async () => {
+    const root = await mkdtemp(join(tmpdir(), "use-agent-cli-no-argument-secret-"));
     const stdout = new Sink();
     const stderr = new Sink();
     const exitCode = await runCli(["agents", "list", "--api-key", "secret"], {
       stdout,
       stderr,
       env: {},
+      homeDirectory: root,
+      credentialStore: new MemoryCredentialStore(),
     });
 
     expect(exitCode).toBe(3);

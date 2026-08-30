@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 — 2026-08-31
 
 - Add RFC 8628 device authorization for interactive CLI login with explicit
   browser approval.

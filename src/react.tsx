@@ -322,6 +322,7 @@ export type AgentMessageStatus = "completed" | "streaming" | "failed" | "cancell
 export interface AgentChatMessage {
   id: string;
   turnId: string;
+  attempt: number;
   role: "user" | "assistant";
   content: string;
   status: AgentMessageStatus;
@@ -339,12 +340,17 @@ export type AgentToolCallStatus =
 export interface AgentToolCall {
   id: string;
   turnId: string;
+  operationId?: string;
+  callId?: string;
+  revision?: string;
+  risk?: string;
   name: string;
   label: string;
   summary?: string;
   status: AgentToolCallStatus;
   input?: unknown;
   output?: unknown;
+  error?: unknown;
   createdAt: string;
   eventId: number;
 }
@@ -367,12 +373,14 @@ export function reduceAgentMessages(events: readonly AgentEvent[]): AgentChatMes
   for (const event of events) {
     if (!event.turnId) continue;
     const inputId = `${event.turnId}:user`;
-    const outputId = `${event.turnId}:assistant:${event.attempt}`;
+    const itemId = stringField(event.data, "itemId");
+    const outputId = `${event.turnId}:assistant:${itemId ?? `attempt-${event.attempt}`}`;
 
     if (event.type === "message.input") {
       messages.set(inputId, {
         id: inputId,
         turnId: event.turnId,
+        attempt: event.attempt,
         role: "user",
         content: stringField(event.data, "content") ?? "",
         status: "completed",
@@ -386,6 +394,7 @@ export function reduceAgentMessages(events: readonly AgentEvent[]): AgentChatMes
       messages.set(outputId, {
         id: outputId,
         turnId: event.turnId,
+        attempt: event.attempt,
         role: "assistant",
         content: "",
         status: "streaming",
@@ -412,6 +421,7 @@ export function reduceAgentMessages(events: readonly AgentEvent[]): AgentChatMes
       messages.set(outputId, {
         id: outputId,
         turnId: event.turnId,
+        attempt: event.attempt,
         role: "assistant",
         content: stringField(event.data, "content") ?? current?.content ?? "",
         status: "completed",
@@ -422,18 +432,28 @@ export function reduceAgentMessages(events: readonly AgentEvent[]): AgentChatMes
     }
 
     if (event.type === "message.attempt_abandoned") {
-      messages.delete(outputId);
+      for (const [id, message] of messages) {
+        if (
+          message.turnId === event.turnId &&
+          message.role === "assistant" &&
+          message.attempt === event.attempt &&
+          message.status === "streaming"
+        ) {
+          messages.delete(id);
+        }
+      }
       continue;
     }
 
     if (event.type === "turn.failed" || event.type === "turn.cancelled") {
       const current = [...messages.values()]
-        .filter((message) => message.turnId === event.turnId && message.role === "assistant")
+        .filter((message) => message.turnId === event.turnId && message.role === "assistant" && message.attempt === event.attempt)
         .at(-1);
       const terminalId = current?.id ?? `${event.turnId}:assistant:${event.attempt}`;
       messages.set(terminalId, {
         id: terminalId,
         turnId: event.turnId,
+        attempt: event.attempt,
         role: "assistant",
         content: current?.content ?? "",
         status: event.type === "turn.failed" ? "failed" : "cancelled",
@@ -451,26 +471,39 @@ export function reduceAgentToolCalls(events: readonly AgentEvent[]): AgentToolCa
   const calls = new Map<string, AgentToolCall>();
 
   for (const event of events) {
-    if (!event.turnId || !event.type.startsWith("tool.call.")) continue;
-    const eventName = stringField(event.data, "name");
-    const callId = stringField(event.data, "toolCallId") ?? `${event.turnId}:${event.attempt}:${eventName ?? "tool"}`;
-    const current = calls.get(callId);
+    if (!event.turnId) continue;
+    const lifecycle = toolLifecycle(event.type);
+    if (!lifecycle) continue;
+    const operationId = stringField(event.data, "operationId");
+    const callId = stringField(event.data, "callId") ?? stringField(event.data, "toolCallId");
+    const eventName = stringField(event.data, "toolName") ?? stringField(event.data, "name");
+    const revision = stringField(event.data, "toolRevision");
+    const risk = stringField(event.data, "risk");
+    const id = operationId ?? callId ?? `${event.turnId}:${event.attempt}:${eventName ?? "tool"}`;
+    const current = calls.get(id);
     const name = eventName ?? current?.name ?? "tool";
     const summary = stringField(event.data, "summary");
     const status: AgentToolCallStatus =
-      event.type === "tool.call.completed"
+      lifecycle === "completed"
         ? "completed"
-        : event.type === "tool.call.failed"
+        : lifecycle === "failed"
           ? "failed"
-          : event.type === "tool.call.approval_required"
+          : lifecycle === "approval_required" || (lifecycle === "proposed" && stringField(event.data, "approval") === "required")
             ? "approval_required"
-            : event.type === "tool.call.started"
+            : lifecycle === "started"
               ? "running"
               : "proposed";
+    const input = unknownField(event.data, "arguments") ?? unknownField(event.data, "input");
+    const output = unknownField(event.data, "output");
+    const failure = unknownField(event.data, "error");
 
-    calls.set(callId, {
-      id: callId,
+    calls.set(id, {
+      id,
       turnId: event.turnId,
+      ...(operationId === undefined ? current?.operationId === undefined ? {} : { operationId: current.operationId } : { operationId }),
+      ...(callId === undefined ? current?.callId === undefined ? {} : { callId: current.callId } : { callId }),
+      ...(revision === undefined ? current?.revision === undefined ? {} : { revision: current.revision } : { revision }),
+      ...(risk === undefined ? current?.risk === undefined ? {} : { risk: current.risk } : { risk }),
       name,
       label: stringField(event.data, "label") ?? current?.label ?? name,
       ...(summary === undefined
@@ -479,22 +512,34 @@ export function reduceAgentToolCalls(events: readonly AgentEvent[]): AgentToolCa
           : { summary: current.summary }
         : { summary }),
       status,
-      ...(unknownField(event.data, "input") === undefined
+      ...(input === undefined
         ? current?.input === undefined
           ? {}
           : { input: current.input }
-        : { input: unknownField(event.data, "input") }),
-      ...(unknownField(event.data, "output") === undefined
+        : { input }),
+      ...(output === undefined
         ? current?.output === undefined
           ? {}
           : { output: current.output }
-        : { output: unknownField(event.data, "output") }),
+        : { output }),
+      ...(failure === undefined
+        ? current?.error === undefined
+          ? {}
+          : { error: current.error }
+        : { error: failure }),
       createdAt: current?.createdAt ?? event.createdAt,
       eventId: event.id,
     });
   }
 
   return [...calls.values()].sort((left, right) => left.eventId - right.eventId);
+}
+
+function toolLifecycle(type: string): "proposed" | "started" | "completed" | "failed" | "approval_required" | null {
+  const canonical = /^(?:tool|tool\.call)\.(proposed|started|completed|failed|approval_required)$/u.exec(type)?.[1];
+  return canonical === "proposed" || canonical === "started" || canonical === "completed" || canonical === "failed" || canonical === "approval_required"
+    ? canonical
+    : null;
 }
 
 interface SessionState {
@@ -955,7 +1000,7 @@ export function AgentToolCall({ toolCall, className, style, theme, copy }: Agent
   const labels = { ...context.copy, ...copy };
   const [expanded, setExpanded] = useState(false);
   const [hovered, setHovered] = useState(false);
-  const hasDetails = toolCall.input !== undefined || toolCall.output !== undefined;
+  const hasDetails = toolCall.input !== undefined || toolCall.output !== undefined || toolCall.error !== undefined;
   const title = toolCall.label === toolCall.name ? humanizeToolName(toolCall.name) : toolCall.label;
   const summary = toolCall.summary ?? deriveToolSummary(toolCall.input);
   const statusLabel =
@@ -1054,6 +1099,14 @@ export function AgentToolCall({ toolCall, className, style, theme, copy }: Agent
               <div style={{ marginBottom: 2, color: colors.inkTertiary, fontFamily: colors.fontFamily }}>Output</div>
               <pre style={{ margin: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere", font: "inherit" }}>
                 {formatToolPayload(toolCall.output)}
+              </pre>
+            </div>
+          ) : null}
+          {toolCall.error !== undefined ? (
+            <div>
+              <div style={{ marginBottom: 2, color: colors.statusBad, fontFamily: colors.fontFamily }}>Error</div>
+              <pre style={{ margin: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere", font: "inherit" }}>
+                {formatToolPayload(toolCall.error)}
               </pre>
             </div>
           ) : null}

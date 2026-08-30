@@ -105,6 +105,7 @@ describe("React SDK", () => {
     const message: AgentChatMessage = {
       id: "turn-1:user",
       turnId: "turn-1",
+      attempt: 0,
       role: "user",
       content: "Where is my order?",
       status: "completed",
@@ -131,33 +132,29 @@ describe("React SDK", () => {
     expect(themedHtml).not.toContain("var(--codespring-agent-well, var(--codespring-agent-well");
   });
 
-  test("reduces durable tool lifecycle events", () => {
-    const events: AgentEvent[] = [
-      {
-        ...base,
-        id: 1,
-        attempt: 1,
-        type: "tool.call.started",
-        data: { toolCallId: "call-1", name: "orders.lookup", label: "Look up order", summary: "CS-1042", input: { orderId: "CS-1042" } },
-      },
-      {
-        ...base,
-        id: 2,
-        attempt: 1,
-        type: "tool.call.completed",
-        data: { toolCallId: "call-1", name: "orders.lookup", output: { status: "in_transit" } },
-      },
-    ];
+  test("reduces the canonical runtime compatibility fixture", async () => {
+    const events = await Bun.file(
+      new URL("./fixtures/session-with-tools.v1.json", import.meta.url),
+    ).json() as AgentEvent[];
+
+    expect(reduceAgentMessages(events).map(({ role, content, status }) => ({ role, content, status }))).toEqual([
+      { role: "user", content: "Where is order 1042?", status: "completed" },
+      { role: "assistant", content: "I’ll check that.", status: "completed" },
+      { role: "assistant", content: "Order 1042 is in transit.", status: "completed" },
+    ]);
 
     expect(reduceAgentToolCalls(events)).toEqual([
       expect.objectContaining({
-        id: "call-1",
-        name: "orders.lookup",
-        label: "Look up order",
-        summary: "CS-1042",
+        id: "tool:22222222-2222-4222-8222-222222222222:0:1",
+        operationId: "tool:22222222-2222-4222-8222-222222222222:0:1",
+        callId: "call_01",
+        revision: "1",
+        risk: "read",
+        name: "codespring_echo",
+        label: "codespring_echo",
         status: "completed",
-        input: { orderId: "CS-1042" },
-        output: { status: "in_transit" },
+        input: { value: "order-1042" },
+        output: { value: "order-1042" },
       }),
     ]);
   });

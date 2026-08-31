@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 — 2026-08-31
+
+- Add opt-in message copy, retry, binary feedback, and token-usage presentation
+  with callback-driven privileged actions.
+- Associate durable `usage.recorded` events with terminal assistant messages.
 
 ## 0.6.1 — 2026-08-31
 

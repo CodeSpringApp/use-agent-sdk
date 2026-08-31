@@ -135,6 +135,27 @@ describe("React SDK", () => {
     ]);
   });
 
+  test("associates durable token usage with the terminal assistant message", () => {
+    const messages = reduceAgentMessages([
+      { ...base, id: 1, attempt: 1, type: "message.started", data: { itemId: "message-1" } },
+      { ...base, id: 2, attempt: 1, type: "message.completed", data: { itemId: "message-1", content: "Done" } },
+      { ...base, id: 3, attempt: 1, type: "usage.recorded", data: {
+        inputTokens: 120,
+        outputTokens: 30,
+        cachedInputTokens: 20,
+        reasoningTokens: 4,
+      } },
+    ]);
+
+    expect(messages[0]?.usage).toEqual({
+      inputTokens: 120,
+      outputTokens: 30,
+      cachedInputTokens: 20,
+      reasoningTokens: 4,
+      totalTokens: 150,
+    });
+  });
+
   test("provider and presentational components render during SSR", () => {
     const client = createBrowserClient({
       endpoint: "http://localhost:8787/browser",
@@ -168,6 +189,49 @@ describe("React SDK", () => {
     );
     expect(themedHtml).toContain("var(--codespring-agent-well, #ABCDEF)");
     expect(themedHtml).not.toContain("var(--codespring-agent-well, var(--codespring-agent-well");
+  });
+
+  test("renders only explicitly configured message actions", () => {
+    const client = createBrowserClient({
+      endpoint: "http://localhost:8787/browser",
+      getClientToken: async () => "token",
+    });
+    const message: AgentChatMessage = {
+      id: "turn-1:assistant:1",
+      turnId: "turn-1",
+      attempt: 1,
+      role: "assistant",
+      content: "A useful answer",
+      status: "completed",
+      createdAt: base.createdAt,
+      eventId: 3,
+      usage: {
+        inputTokens: 100,
+        outputTokens: 25,
+        cachedInputTokens: 0,
+        reasoningTokens: 0,
+        totalTokens: 125,
+      },
+    };
+
+    const plain = renderToStaticMarkup(
+      <AgentProvider client={client}><AgentMessage message={message}/></AgentProvider>,
+    );
+    expect(plain).not.toContain("Helpful response");
+    expect(plain).not.toContain("tokens");
+
+    const configured = renderToStaticMarkup(
+      <AgentProvider client={client}>
+        <AgentMessage
+          message={message}
+          actions={{ copy: true, feedback: "binary", usage: "tokens" }}
+          onFeedback={() => undefined}
+        />
+      </AgentProvider>,
+    );
+    expect(configured).toContain("Copy");
+    expect(configured).toContain("Helpful response");
+    expect(configured).toContain("125 tokens");
   });
 
   test("renders hardened GFM and reusable code blocks during SSR", () => {

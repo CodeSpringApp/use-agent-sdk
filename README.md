@@ -206,6 +206,33 @@ compact inspectable activity rows, and the live-edge composer without a shadow.
 `paperLightTheme`, `paperDarkTheme`, theme/copy overrides, slots, and render
 functions are available for customization.
 
+Message actions are opt-in. Copy can work locally; retry and feedback are
+callback-driven so applications can call their authenticated, rate-limited
+server endpoints. Token totals are reduced only from durable runtime usage
+events.
+
+```tsx
+<AgentChat
+  sessionId={sessionId}
+  messageActions={{
+    retry: "failed",
+    feedback: "binary",
+    copy: true,
+    usage: "tokens",
+  }}
+  onRetryMessage={(message) => retryTurn(message.turnId)}
+  onFeedback={(message, value) => submitFeedback({
+    turnId: message.turnId,
+    messageId: message.id,
+    value,
+  })}
+/>
+```
+
+Setting an action option only changes presentation. It does not grant runtime
+scopes or bypass server-side authorization, idempotency, quotas, or abuse
+controls.
+
 Assistant text is rendered as hardened, streaming-safe GFM through Streamdown.
 Fenced code uses the exported `AgentCodeBlock`, with a readable immediate
 fallback and lazy Shiki highlighting. The renderer requires no Tailwind source

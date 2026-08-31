@@ -879,6 +879,14 @@ export function useAgentCopy(): AgentCopy {
 
 export type AgentMessageStatus = "completed" | "streaming" | "failed" | "cancelled";
 
+export interface AgentTokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cachedInputTokens: number;
+  reasoningTokens: number;
+  totalTokens: number;
+}
+
 export interface AgentChatMessage {
   id: string;
   turnId: string;
@@ -888,6 +896,16 @@ export interface AgentChatMessage {
   status: AgentMessageStatus;
   createdAt: string;
   eventId: number;
+  usage?: AgentTokenUsage;
+}
+
+export type AgentFeedbackValue = "positive" | "negative";
+
+export interface AgentMessageActionConfig {
+  retry?: "failed" | "always" | false;
+  feedback?: "binary" | false;
+  copy?: boolean;
+  usage?: "tokens" | false;
 }
 
 export type AgentToolCallStatus =
@@ -924,6 +942,14 @@ function stringField(data: unknown, key: string): string | undefined {
 function unknownField(data: unknown, key: string): unknown {
   if (!data || typeof data !== "object") return undefined;
   return (data as Record<string, unknown>)[key];
+}
+
+function numberField(data: unknown, key: string): number {
+  if (!data || typeof data !== "object") return 0;
+  const value = (data as Record<string, unknown>)[key];
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : 0;
 }
 
 /** Pure reducer for consumers that want CodeSpring's durable event semantics with custom UI. */
@@ -1002,6 +1028,27 @@ export function reduceAgentMessages(events: readonly AgentEvent[]): AgentChatMes
           messages.delete(id);
         }
       }
+      continue;
+    }
+
+    if (event.type === "usage.recorded") {
+      const inputTokens = numberField(event.data, "inputTokens");
+      const outputTokens = numberField(event.data, "outputTokens");
+      const usage: AgentTokenUsage = {
+        inputTokens,
+        outputTokens,
+        cachedInputTokens: numberField(event.data, "cachedInputTokens"),
+        reasoningTokens: numberField(event.data, "reasoningTokens"),
+        totalTokens: inputTokens + outputTokens,
+      };
+      const current = [...messages.values()]
+        .filter((message) =>
+          message.turnId === event.turnId &&
+          message.role === "assistant" &&
+          message.attempt === event.attempt
+        )
+        .at(-1);
+      if (current) messages.set(current.id, { ...current, usage, eventId: event.id });
       continue;
     }
 
@@ -1444,21 +1491,88 @@ export function useAgentToolCalls(sessionId: string): AgentToolCall[] {
 
 export interface AgentMessageProps extends StyledProps {
   message: AgentChatMessage;
+  actions?: AgentMessageActionConfig;
+  onRetry?: (message: AgentChatMessage) => void | Promise<void>;
+  onFeedback?: (
+    message: AgentChatMessage,
+    value: AgentFeedbackValue,
+  ) => void | Promise<void>;
+  onCopy?: (message: AgentChatMessage) => void | Promise<void>;
   theme?: Partial<AgentTheme>;
   copy?: Partial<AgentCopy>;
 }
 
-export function AgentMessage({ message, className, style, theme, copy }: AgentMessageProps) {
+export function AgentMessage({
+  message,
+  actions,
+  onRetry,
+  onFeedback,
+  onCopy,
+  className,
+  style,
+  theme,
+  copy,
+}: AgentMessageProps) {
   const context = useAgentContext();
   const colors = withThemeOverrides(context.theme, theme);
   const labels = { ...context.copy, ...copy };
   const isUser = message.role === "user";
+  const [feedback, setFeedback] = useState<AgentFeedbackValue | null>(null);
+  const [actionPending, setActionPending] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const fallback =
     message.status === "failed"
       ? labels.failed
       : message.status === "cancelled"
         ? labels.cancelled
         : labels.thinking;
+
+  const canRetry = !!onRetry && (
+    actions?.retry === "always" ||
+    (actions?.retry === "failed" && message.status === "failed")
+  );
+  const canFeedback = !!onFeedback && actions?.feedback === "binary" && message.status === "completed";
+  const canCopy = actions?.copy === true && message.content.length > 0;
+  const showUsage = actions?.usage === "tokens" && message.usage;
+  const hasActions = !isUser && (canRetry || canFeedback || canCopy || !!showUsage);
+
+  const submitFeedback = async (value: AgentFeedbackValue) => {
+    if (!onFeedback || actionPending) return;
+    const previous = feedback;
+    setFeedback(value);
+    setActionPending(true);
+    setActionError(null);
+    try {
+      await onFeedback(message, value);
+    } catch (error) {
+      setFeedback(previous);
+      setActionError(error instanceof Error ? error.message : "Feedback could not be saved");
+    } finally {
+      setActionPending(false);
+    }
+  };
+
+  const retry = async () => {
+    if (!onRetry || actionPending) return;
+    setActionPending(true);
+    setActionError(null);
+    try {
+      await onRetry(message);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Retry could not be started");
+    } finally {
+      setActionPending(false);
+    }
+  };
+
+  const copyMessage = async () => {
+    try {
+      if (onCopy) await onCopy(message);
+      else await globalThis.navigator?.clipboard?.writeText(message.content);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Message could not be copied");
+    }
+  };
 
   return (
     <article
@@ -1483,8 +1597,31 @@ export function AgentMessage({ message, className, style, theme, copy }: AgentMe
           <AgentMarkdown streaming={message.status === "streaming"} {...(theme === undefined ? {} : { theme })}>{message.content}</AgentMarkdown>
         )
       ) : fallback}
+      {hasActions ? (
+        <footer style={{ display: "flex", minHeight: 24, alignItems: "center", gap: 8, marginTop: 7, color: colors.inkTertiary, fontSize: 11 }}>
+          {canCopy ? <button type="button" onClick={() => void copyMessage()} style={messageActionStyle(colors)}>Copy</button> : null}
+          {canRetry ? <button type="button" disabled={actionPending} onClick={() => void retry()} style={messageActionStyle(colors)}>Retry</button> : null}
+          {canFeedback ? <>
+            <button type="button" aria-pressed={feedback === "positive"} aria-label="Helpful response" disabled={actionPending} onClick={() => void submitFeedback("positive")} style={messageActionStyle(colors)}>Helpful</button>
+            <button type="button" aria-pressed={feedback === "negative"} aria-label="Unhelpful response" disabled={actionPending} onClick={() => void submitFeedback("negative")} style={messageActionStyle(colors)}>Not helpful</button>
+          </> : null}
+          {showUsage ? <span style={{ marginLeft: "auto" }}>{message.usage?.totalTokens.toLocaleString()} tokens</span> : null}
+        </footer>
+      ) : null}
+      {actionError ? <div role="alert" style={{ marginTop: 4, color: colors.statusBad, fontSize: 11 }}>{actionError}</div> : null}
     </article>
   );
+}
+
+function messageActionStyle(colors: AgentTheme): CSSProperties {
+  return {
+    border: 0,
+    padding: "2px 0",
+    color: colors.inkTertiary,
+    background: "transparent",
+    cursor: "pointer",
+    font: "inherit",
+  };
 }
 
 export interface AgentToolCallProps extends StyledProps {
@@ -1695,6 +1832,10 @@ export interface AgentMessageListProps extends StyledProps {
   isWorking?: boolean;
   renderMessage?: (message: AgentChatMessage) => ReactNode;
   renderToolCall?: (toolCall: AgentToolCall) => ReactNode;
+  messageActions?: AgentMessageActionConfig;
+  onRetryMessage?: (message: AgentChatMessage) => void | Promise<void>;
+  onFeedback?: (message: AgentChatMessage, value: AgentFeedbackValue) => void | Promise<void>;
+  onCopyMessage?: (message: AgentChatMessage) => void | Promise<void>;
   theme?: Partial<AgentTheme>;
   copy?: Partial<AgentCopy>;
 }
@@ -1705,6 +1846,10 @@ export function AgentMessageList({
   isWorking = false,
   renderMessage,
   renderToolCall,
+  messageActions,
+  onRetryMessage,
+  onFeedback,
+  onCopyMessage,
   className,
   style,
   theme,
@@ -1769,6 +1914,10 @@ export function AgentMessageList({
           <AgentMessage
             key={`message:${row.item.id}`}
             message={row.item}
+            {...(messageActions === undefined ? {} : { actions: messageActions })}
+            {...(onRetryMessage === undefined ? {} : { onRetry: onRetryMessage })}
+            {...(onFeedback === undefined ? {} : { onFeedback })}
+            {...(onCopyMessage === undefined ? {} : { onCopy: onCopyMessage })}
             {...(theme === undefined ? {} : { theme })}
             {...(copy === undefined ? {} : { copy })}
           />
@@ -1921,6 +2070,10 @@ export interface AgentChatProps extends StyledProps {
   copy?: Partial<AgentCopy>;
   renderMessage?: (message: AgentChatMessage) => ReactNode;
   renderToolCall?: (toolCall: AgentToolCall) => ReactNode;
+  messageActions?: AgentMessageActionConfig;
+  onRetryMessage?: (message: AgentChatMessage) => void | Promise<void>;
+  onFeedback?: (message: AgentChatMessage, value: AgentFeedbackValue) => void | Promise<void>;
+  onCopyMessage?: (message: AgentChatMessage) => void | Promise<void>;
   onError?: (error: Error) => void;
 }
 
@@ -1936,6 +2089,10 @@ export function AgentChat({
   copy,
   renderMessage,
   renderToolCall,
+  messageActions,
+  onRetryMessage,
+  onFeedback,
+  onCopyMessage,
   onError,
 }: AgentChatProps) {
   const context = useAgentContext();
@@ -2016,6 +2173,10 @@ export function AgentChat({
             isWorking={isWorking}
             {...(renderMessage === undefined ? {} : { renderMessage })}
             {...(renderToolCall === undefined ? {} : { renderToolCall })}
+            {...(messageActions === undefined ? {} : { messageActions })}
+            {...(onRetryMessage === undefined ? {} : { onRetryMessage })}
+            {...(onFeedback === undefined ? {} : { onFeedback })}
+            {...(onCopyMessage === undefined ? {} : { onCopyMessage })}
             {...(theme === undefined ? {} : { theme })}
             {...(copy === undefined ? {} : { copy })}
           />

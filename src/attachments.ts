@@ -144,7 +144,8 @@ export function createAttachmentResolverHandler(
         claims.tenant_id !== invocation.tenantId ||
         claims.environment_id !== invocation.environmentId ||
         claims.agent_revision_id !== invocation.agentRevisionId ||
-        claims.handler_revision !== invocation.handlerRevision
+        claims.handler_revision !== invocation.handlerRevision ||
+        claims.asset_id !== invocation.asset.assetId
       ) throw new Error("claims mismatch");
     } catch {
       return jsonError(401, "invalid_asset_authorization", "Asset authorization is invalid");

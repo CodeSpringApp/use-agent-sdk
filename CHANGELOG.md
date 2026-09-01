@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.2 — 2026-09-02
+
+- Bind customer-owned attachment authorization to the exact opaque asset ID in
+  addition to the request digest, tenant, environment, agent revision, and
+  handler revision.
+
 ## 0.8.1 — 2026-09-02
 
 - Allow the presentational `AgentThinkingIndicator` to render outside

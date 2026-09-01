@@ -86,6 +86,28 @@ describe("customer-owned attachments", () => {
     });
     expect((await handler(request)).status).toBe(401);
   });
+
+  it("binds the authorization token to the exact opaque asset ID", async () => {
+    const signing = await signingFixture();
+    const handler = createAttachmentResolverHandler({
+      endpoint,
+      handlerRevision: "assets-2026-09-01",
+      issuer,
+      jwks: signing.jwks,
+      resolve: async () => bytes,
+    });
+    const invocation = {
+      schemaVersion: 1 as const,
+      operationId: "asset:turn-1:ref-1",
+      tenantId: "tenant_1",
+      environmentId: "production",
+      agentRevisionId: "support@7",
+      handlerRevision: "assets-2026-09-01",
+      asset,
+    };
+    const request = await signedRequest(signing.privateKey, invocation, invocation, "tenant-assets/other");
+    expect((await handler(request)).status).toBe(401);
+  });
 });
 
 async function signingFixture() {
@@ -101,6 +123,7 @@ async function signedRequest(
   privateKey: CryptoKey,
   signedInvocation: Record<string, unknown>,
   requestInvocation: Record<string, unknown> = signedInvocation,
+  assetIdClaim?: string,
 ): Promise<Request> {
   const signedBody = JSON.stringify(signedInvocation);
   const invocation = signedInvocation as {
@@ -109,6 +132,7 @@ async function signedRequest(
     environmentId: string;
     agentRevisionId: string;
     handlerRevision: string;
+    asset: { assetId: string };
   };
   const token = await new SignJWT({
     body_sha256: await sha256Base64Url(signedBody),
@@ -117,6 +141,7 @@ async function signedRequest(
     environment_id: invocation.environmentId,
     agent_revision_id: invocation.agentRevisionId,
     handler_revision: invocation.handlerRevision,
+    asset_id: assetIdClaim ?? invocation.asset.assetId,
   })
     .setProtectedHeader({ alg: "ES256", kid: "test-v1", typ: "codespring-agent-asset+jwt" })
     .setIssuer(issuer)

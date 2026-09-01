@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.0 — 2026-09-02
+
+- Add namespaced MCP server discovery, refresh, status, and pagination APIs.
+- Add versioned Markdown skill creation, publication, status, and pagination APIs.
+- Allow managed agent drafts to select MCP tools and skills; published versions
+  expose the exact pinned snapshot and skill revisions.
+
 ## 0.8.3 — 2026-09-02
 
 - Add an adapter-level aggregate attachment byte limit and enforce it before

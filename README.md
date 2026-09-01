@@ -44,6 +44,52 @@ const agentsPage = await agents.agents.list({ limit: 25 });
 const tool = await agents.tools.get("customer-lookup");
 ```
 
+### MCP servers and skills
+
+Register a public stateless Streamable HTTP server, inspect its normalized tool
+snapshot, and explicitly select tool IDs in an agent draft:
+
+```ts
+const server = await agents.mcpServers.create({
+  serverId: "catalog",
+  displayName: "Product catalog",
+  endpoint: "https://mcp.example.com/mcp",
+});
+
+const draft = await agents.agents.create({
+  agentId: "catalog-assistant",
+  displayName: "Catalog assistant",
+  instructions: "Help customers find the right product.",
+  modelProfileId: "production-default",
+  mcpToolIds: server.currentSnapshot?.tools.map((tool) => tool.toolId) ?? [],
+  skillIds: ["support-style"],
+});
+```
+
+This release accepts unauthenticated public HTTPS MCP endpoints. Discovery is
+snapshotted; publishing an agent pins the exact snapshot and source tools rather
+than trusting fresh discovery during a turn.
+
+Skills are versioned Markdown instructions. Publishing a new skill revision does
+not mutate existing agent versions:
+
+```ts
+await agents.skills.create({
+  skillId: "support-style",
+  displayName: "Support style",
+  instructions: "Use concise, empathetic answers.",
+  contextBudgetChars: 4096,
+});
+
+await agents.skills.publish("support-style", {
+  instructions: "Use concise, empathetic answers and cite policy.",
+  contextBudgetChars: 4096,
+});
+```
+
+All registry lists use opaque cursor pagination. MCP credentials, executable
+skill files, and arbitrary uploaded code are intentionally outside this release.
+
 ## CLI and coding-agent skill
 
 The package installs a `use-agent` executable and exports a testable Node-only

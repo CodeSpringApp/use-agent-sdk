@@ -196,6 +196,13 @@ export interface ManagedAgentRevision {
   maxModelSteps: number;
   maxToolCalls: number;
   tools: Array<{ toolId: string; revisionId: string; modelName: string }>;
+  mcpTools: Array<{
+    serverId: string;
+    snapshotId: string;
+    sourceName: string;
+    modelName: string;
+  }>;
+  skills: Array<{ skillId: string; revisionId: string }>;
   assetResolver: AgentAssetResolver | null;
   createdAt: string;
 }
@@ -203,6 +210,8 @@ export interface ManagedAgentRevision {
 export interface ManagedAgent extends ManagedAgentSummary {
   instructions: string;
   toolIds: string[];
+  mcpToolIds: string[];
+  skillIds: string[];
   currentRevision: ManagedAgentRevision | null;
   hasUnpublishedChanges: boolean;
 }
@@ -214,6 +223,8 @@ export interface AgentDraftInput {
   instructions: string;
   modelProfileId: string;
   toolIds?: string[];
+  mcpToolIds?: string[];
+  skillIds?: string[];
   assetResolver?: AgentAssetResolver | null;
 }
 
@@ -266,6 +277,82 @@ export interface CreateManagedToolInput {
   toolId: string;
   displayName: string;
   initialRevision: Omit<ToolRevisionInput, "operationId">;
+}
+
+export type ManagedMcpServerStatus = "active" | "disabled" | "error";
+export interface ManagedMcpTool {
+  toolId: string;
+  sourceName: string;
+  modelName: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+export interface ManagedMcpSnapshot {
+  snapshotId: string;
+  snapshotNumber: number;
+  protocolVersion: string;
+  serverName: string;
+  serverVersion: string;
+  toolsDigest: string;
+  tools: ManagedMcpTool[];
+  createdAt: string;
+}
+export interface ManagedMcpServer {
+  serverId: string;
+  displayName: string;
+  endpoint: string;
+  authMode: "none";
+  status: ManagedMcpServerStatus;
+  currentSnapshotId: string | null;
+  currentSnapshot: ManagedMcpSnapshot | null;
+  lastErrorCode: string | null;
+  lastDiscoveredAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface CreateManagedMcpServerInput {
+  operationId?: string;
+  serverId: string;
+  displayName: string;
+  endpoint: string;
+  authMode?: "none";
+}
+
+export type ManagedSkillStatus = "active" | "disabled";
+export interface ManagedSkillRevision {
+  revisionId: string;
+  revisionNumber: number;
+  skillId: string;
+  instructionsDigest: string;
+  instructionsBytes: number;
+  contextBudgetChars: number;
+  createdAt: string;
+}
+export interface ManagedSkillSummary {
+  skillId: string;
+  displayName: string;
+  description: string;
+  status: ManagedSkillStatus;
+  currentRevisionId: string;
+  currentRevision: ManagedSkillRevision;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface ManagedSkill extends ManagedSkillSummary {
+  instructions: string;
+}
+export interface CreateManagedSkillInput {
+  operationId?: string;
+  skillId: string;
+  displayName: string;
+  description?: string;
+  instructions: string;
+  contextBudgetChars?: number;
+}
+export interface SkillRevisionInput {
+  operationId?: string;
+  instructions: string;
+  contextBudgetChars?: number;
 }
 
 export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;

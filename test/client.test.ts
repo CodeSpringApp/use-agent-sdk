@@ -206,6 +206,56 @@ describe("public SDK", () => {
     });
   });
 
+  test("manages MCP discovery and immutable skill revisions through namespaced clients", async () => {
+    const requests: Request[] = [];
+    const client = createClient({
+      endpoint: "http://localhost:8787",
+      apiKey: "ua_test_secret",
+      fetch: async (input, init) => {
+        const request = new Request(input, init);
+        requests.push(request);
+        if (request.method === "GET") {
+          return Response.json({ items: [], cursor: null, hasMore: false });
+        }
+        return Response.json({ ok: true });
+      },
+    });
+
+    await client.mcpServers.list({ limit: 25 });
+    await client.mcpServers.create({
+      serverId: "catalog",
+      displayName: "Catalog",
+      endpoint: "https://mcp.example.com/mcp",
+    });
+    await client.mcpServers.refresh("catalog");
+    await client.skills.create({
+      skillId: "support-style",
+      displayName: "Support style",
+      instructions: "Use concise answers.",
+    });
+    await client.skills.publish("support-style", {
+      instructions: "Use concise, empathetic answers.",
+      contextBudgetChars: 4096,
+    });
+
+    expect(requests.map((request) => `${request.method} ${new URL(request.url).pathname}`)).toEqual([
+      "GET /v1/mcp-servers",
+      "POST /v1/mcp-servers",
+      "POST /v1/mcp-servers/catalog/refresh",
+      "POST /v1/skills",
+      "POST /v1/skills/support-style/publish",
+    ]);
+    expect(await requests[1]!.json()).toMatchObject({
+      operationId: expect.any(String),
+      serverId: "catalog",
+      authMode: "none",
+    });
+    expect(await requests[4]!.json()).toMatchObject({
+      operationId: expect.any(String),
+      contextBudgetChars: 4096,
+    });
+  });
+
   test("exchanges a browser token for a cursor-bound WebSocket ticket", async () => {
     const requests: Request[] = [];
     let socket: FakeWebSocket | undefined;

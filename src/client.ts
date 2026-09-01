@@ -28,6 +28,14 @@ import type {
   ToolRevisionInput,
   AgentDraftInput,
   WebSocketServerMessage,
+  ManagedMcpServer,
+  ManagedMcpServerStatus,
+  CreateManagedMcpServerInput,
+  ManagedSkill,
+  ManagedSkillSummary,
+  ManagedSkillStatus,
+  CreateManagedSkillInput,
+  SkillRevisionInput,
 } from "./types";
 
 export class AgentError extends Error {
@@ -448,6 +456,56 @@ export class AgentClient {
       options: RequestOptions = {},
     ): Promise<ManagedTool> =>
       this.transport.request(`/v1/tools/${encodeURIComponent(toolId)}/status`, {
+        method: "POST",
+        body: JSON.stringify({ operationId: randomIdempotencyKey(), status }),
+        ...requestInit(options),
+      }),
+  };
+
+  readonly mcpServers = {
+    list: (options: PageOptions = {}): Promise<Page<ManagedMcpServer>> =>
+      this.transport.request(`/v1/mcp-servers${pageQuery(options)}`, requestInit(options)),
+    get: (serverId: string, options: RequestOptions = {}): Promise<ManagedMcpServer> =>
+      this.transport.request(`/v1/mcp-servers/${encodeURIComponent(serverId)}`, requestInit(options)),
+    create: (input: CreateManagedMcpServerInput, options: RequestOptions = {}): Promise<ManagedMcpServer> =>
+      this.transport.request("/v1/mcp-servers", {
+        method: "POST",
+        body: JSON.stringify(withOperationId({ authMode: "none" as const, ...input })),
+        ...requestInit(options),
+      }),
+    refresh: (serverId: string, options: RequestOptions = {}): Promise<ManagedMcpServer> =>
+      this.transport.request(`/v1/mcp-servers/${encodeURIComponent(serverId)}/refresh`, {
+        method: "POST",
+        body: JSON.stringify({ operationId: randomIdempotencyKey() }),
+        ...requestInit(options),
+      }),
+    setStatus: (serverId: string, status: Exclude<ManagedMcpServerStatus, "error">, options: RequestOptions = {}): Promise<ManagedMcpServer> =>
+      this.transport.request(`/v1/mcp-servers/${encodeURIComponent(serverId)}/status`, {
+        method: "POST",
+        body: JSON.stringify({ operationId: randomIdempotencyKey(), status }),
+        ...requestInit(options),
+      }),
+  };
+
+  readonly skills = {
+    list: (options: PageOptions = {}): Promise<Page<ManagedSkillSummary>> =>
+      this.transport.request(`/v1/skills${pageQuery(options)}`, requestInit(options)),
+    get: (skillId: string, options: RequestOptions = {}): Promise<ManagedSkill> =>
+      this.transport.request(`/v1/skills/${encodeURIComponent(skillId)}`, requestInit(options)),
+    create: (input: CreateManagedSkillInput, options: RequestOptions = {}): Promise<ManagedSkill> =>
+      this.transport.request("/v1/skills", {
+        method: "POST",
+        body: JSON.stringify(withOperationId(input)),
+        ...requestInit(options),
+      }),
+    publish: (skillId: string, input: SkillRevisionInput, options: RequestOptions = {}): Promise<ManagedSkill> =>
+      this.transport.request(`/v1/skills/${encodeURIComponent(skillId)}/publish`, {
+        method: "POST",
+        body: JSON.stringify(withOperationId(input)),
+        ...requestInit(options),
+      }),
+    setStatus: (skillId: string, status: ManagedSkillStatus, options: RequestOptions = {}): Promise<ManagedSkill> =>
+      this.transport.request(`/v1/skills/${encodeURIComponent(skillId)}/status`, {
         method: "POST",
         body: JSON.stringify({ operationId: randomIdempotencyKey(), status }),
         ...requestInit(options),

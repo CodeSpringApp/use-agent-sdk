@@ -1917,9 +1917,12 @@ export function AgentThinkingIndicator({
   theme,
   copy,
 }: AgentThinkingIndicatorProps) {
-  const context = useAgentContext();
-  const colors = withThemeOverrides(context.theme, theme);
-  const labels = { ...context.copy, ...copy };
+  const context = useOptionalAgentContext();
+  const colors = withThemeOverrides(
+    context?.theme ?? withThemeVariables(paperAppearance.theme),
+    theme,
+  );
+  const labels = { ...(context?.copy ?? defaultAgentCopy), ...copy };
   const fallbackStartedAt = useRef(Date.now());
   const startedAtMilliseconds = parseStartedAt(startedAt, fallbackStartedAt.current);
   const availableVerbs = verbs && verbs.length > 0

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.1 — 2026-09-02
+
+- Allow the presentational `AgentThinkingIndicator` to render outside
+  `AgentProvider`, while still inheriting provider theme and copy when present.
+
 ## 0.8.0 — 2026-09-01
 
 - Add customer-owned, presigned attachment uploads with optimistic previews,

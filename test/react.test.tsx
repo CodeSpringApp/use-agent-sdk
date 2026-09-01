@@ -374,12 +374,7 @@ describe("React SDK", () => {
 
   test("renders Ferb-style thinking motion with rotating copy and elapsed time", () => {
     const html = renderToStaticMarkup(
-      <AgentProvider client={createBrowserClient({
-        endpoint: "http://localhost:8787/browser",
-        getClientToken: async () => "test-token",
-      })}>
-        <AgentThinkingIndicator startedAt={Date.now()} />
-      </AgentProvider>,
+      <AgentThinkingIndicator startedAt={Date.now()} />,
     );
 
     expect(html).toContain("data-codespring-agent-thinking-sparkle");

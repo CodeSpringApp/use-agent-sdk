@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.3 — 2026-09-02
+
+- Add an adapter-level aggregate attachment byte limit and enforce it before
+  upload/retry so multi-image turns stay within the runtime memory boundary.
+
 ## 0.8.2 — 2026-09-02
 
 - Bind customer-owned attachment authorization to the exact opaque asset ID in

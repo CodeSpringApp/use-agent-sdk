@@ -205,6 +205,9 @@ never part of a turn.
 import { createPresignedAttachmentAdapter } from "@codespring-app/use-agent";
 
 const attachments = createPresignedAttachmentAdapter({
+  maximumFiles: 4,
+  maximumBytes: 10 * 1024 * 1024,
+  maximumTotalBytes: 20 * 1024 * 1024,
   async prepareUpload(file, { signal }) {
     const response = await fetch("/api/agent-assets/prepare", {
       method: "POST",

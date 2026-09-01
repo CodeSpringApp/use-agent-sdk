@@ -2131,6 +2131,23 @@ export function useAgentAttachments(
 
   const upload = (id: string, file: File) => {
     if (!adapter) return;
+    const totalBytes = [...files.current.entries()].reduce(
+      (total, [candidateId, candidate]) => total + (candidateId === id ? 0 : candidate.size),
+      file.size,
+    );
+    if (file.size > (adapter.maximumBytes ?? 20 * 1_024 * 1_024) ||
+      totalBytes > (adapter.maximumTotalBytes ?? 20 * 1_024 * 1_024)) {
+      setAttachments((current) => current.map((attachment) => attachment.id === id
+        ? {
+            ...attachment,
+            status: "failed",
+            error: totalBytes > (adapter.maximumTotalBytes ?? 20 * 1_024 * 1_024)
+              ? "Selected attachments exceed the total size limit"
+              : "Attachment exceeds the size limit",
+          }
+        : attachment));
+      return;
+    }
     controllers.current.get(id)?.abort();
     const controller = new AbortController();
     controllers.current.set(id, controller);

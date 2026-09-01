@@ -28,11 +28,13 @@ describe("customer-owned attachments", () => {
         requests.push(new Request(input, init));
         return new Response(null, { status: 200 });
       },
+      maximumTotalBytes: bytes.byteLength,
     });
     const file = new File([bytes], "reference.png", { type: "image/png" });
     await expect(adapter.upload(file, { signal: new AbortController().signal })).resolves.toEqual(asset);
     expect(requests[0]?.url).toBe("https://storage.customer.example/assets/asset-1");
     expect(requests[0]?.headers.get("Content-Type")).toBe("image/png");
+    expect(adapter.maximumTotalBytes).toBe(bytes.byteLength);
   });
 
   it("verifies the signed runtime resolver request and returns bounded bytes", async () => {

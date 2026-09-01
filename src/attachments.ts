@@ -20,6 +20,7 @@ export interface AgentAttachmentAdapter {
   readonly accept?: string;
   readonly maximumFiles?: number;
   readonly maximumBytes?: number;
+  readonly maximumTotalBytes?: number;
   upload(file: File, context: AgentAttachmentUploadContext): Promise<ExternalAssetRef>;
   remove?(asset: ExternalAssetRef): void | Promise<void>;
 }
@@ -39,6 +40,7 @@ export interface PresignedAttachmentAdapterOptions {
   accept?: string;
   maximumFiles?: number;
   maximumBytes?: number;
+  maximumTotalBytes?: number;
   remove?: (asset: ExternalAssetRef) => void | Promise<void>;
 }
 
@@ -50,10 +52,12 @@ export function createPresignedAttachmentAdapter(
   if (!fetchImplementation) throw new TypeError("A fetch implementation is required");
   const maximumBytes = options.maximumBytes ?? maximumAssetBytes;
   const maximumFiles = options.maximumFiles ?? 4;
+  const maximumTotalBytes = options.maximumTotalBytes ?? maximumAssetBytes;
   return Object.freeze({
     accept: options.accept ?? "image/jpeg,image/png,image/webp,image/gif",
     maximumFiles,
     maximumBytes,
+    maximumTotalBytes,
     async upload(file: File, context: AgentAttachmentUploadContext) {
       validateFile(file, maximumBytes);
       const plan = await options.prepareUpload(file, context);

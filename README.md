@@ -56,6 +56,17 @@ const server = await agents.mcpServers.create({
   endpoint: "https://mcp.example.com/mcp",
 });
 
+const secureServer = await agents.mcpServers.createAuthenticated({
+  serverId: "private-catalog",
+  displayName: "Private product catalog",
+  endpoint: "https://mcp.example.com/mcp",
+  authentication: {
+    mode: "header",
+    headerName: "X-API-Key",
+    secret: process.env.CATALOG_MCP_API_KEY!,
+  },
+});
+
 const draft = await agents.agents.create({
   agentId: "catalog-assistant",
   displayName: "Catalog assistant",
@@ -66,9 +77,11 @@ const draft = await agents.agents.create({
 });
 ```
 
-This release accepts unauthenticated public HTTPS MCP endpoints. Discovery is
-snapshotted; publishing an agent pins the exact snapshot and source tools rather
-than trusting fresh discovery during a turn.
+MCP endpoints may be public, use a bearer token, or use one bounded custom
+header. Credential values are write-only and encrypted by the runtime; only
+safe connection metadata is returned. Discovery is snapshotted, and publishing
+an agent pins the exact snapshot and source tools rather than trusting fresh
+discovery during a turn.
 
 Skills are versioned Markdown instructions. Publishing a new skill revision does
 not mutate existing agent versions:
@@ -87,8 +100,8 @@ await agents.skills.publish("support-style", {
 });
 ```
 
-All registry lists use opaque cursor pagination. MCP credentials, executable
-skill files, and arbitrary uploaded code are intentionally outside this release.
+All registry lists use opaque cursor pagination. Arbitrary uploaded code remains
+outside this release.
 
 ## CLI and coding-agent skill
 

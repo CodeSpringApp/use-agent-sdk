@@ -249,11 +249,64 @@ describe("public SDK", () => {
       operationId: expect.any(String),
       serverId: "catalog",
       authMode: "none",
+      authConnectionId: null,
     });
     expect(await requests[4]!.json()).toMatchObject({
       operationId: expect.any(String),
       contextBudgetChars: 4096,
     });
+  });
+
+  test("creates authenticated MCP servers and revokes orphaned credentials on failure", async () => {
+    const requests: Request[] = [];
+    let failServer = false;
+    const client = createClient({
+      endpoint: "http://localhost:8787",
+      apiKey: "ua_test_secret",
+      fetch: async (input, init) => {
+        const request = new Request(input, init);
+        requests.push(request);
+        const path = new URL(request.url).pathname;
+        if (path === "/v1/mcp-auth-connections" && request.method === "POST") {
+          return Response.json({ connectionId: "00000000-0000-4000-8000-000000000901" });
+        }
+        if (path === "/v1/mcp-servers" && failServer) {
+          return Response.json({ error: { code: "mcp_credential_rejected", message: "Rejected" } }, { status: 502 });
+        }
+        return Response.json({ serverId: "secure-catalog" });
+      },
+    });
+
+    await client.mcpServers.createAuthenticated({
+      serverId: "secure-catalog",
+      displayName: "Secure catalog",
+      endpoint: "https://mcp.example.com/mcp",
+      authentication: { mode: "header", headerName: "X-API-Key", secret: "fake-secret" },
+    });
+    expect(await requests[0]!.json()).toMatchObject({
+      mode: "header",
+      headerName: "X-API-Key",
+      secret: "fake-secret",
+      operationId: expect.any(String),
+    });
+    expect(await requests[1]!.json()).toMatchObject({
+      authMode: "header",
+      authConnectionId: "00000000-0000-4000-8000-000000000901",
+    });
+
+    failServer = true;
+    await expect(client.mcpServers.createAuthenticated({
+      serverId: "rejected-catalog",
+      displayName: "Rejected catalog",
+      endpoint: "https://mcp.example.com/mcp",
+      authentication: { mode: "bearer", secret: "rejected-secret" },
+    })).rejects.toMatchObject({ code: "mcp_credential_rejected" });
+    expect(requests.map((request) => `${request.method} ${new URL(request.url).pathname}`).slice(-3))
+      .toEqual([
+        "POST /v1/mcp-auth-connections",
+        "POST /v1/mcp-servers",
+        "POST /v1/mcp-auth-connections/00000000-0000-4000-8000-000000000901/revoke",
+      ]);
   });
 
   test("exchanges a browser token for a cursor-bound WebSocket ticket", async () => {

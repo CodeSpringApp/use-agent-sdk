@@ -31,6 +31,10 @@ import type {
   ManagedMcpServer,
   ManagedMcpServerStatus,
   CreateManagedMcpServerInput,
+  CreateAuthenticatedManagedMcpServerInput,
+  CreateManagedMcpAuthConnectionInput,
+  RotateManagedMcpAuthConnectionInput,
+  ManagedMcpAuthConnection,
   ManagedSkill,
   ManagedSkillSummary,
   ManagedSkillStatus,
@@ -462,6 +466,31 @@ export class AgentClient {
       }),
   };
 
+  readonly mcpAuthConnections = {
+    list: (options: PageOptions = {}): Promise<Page<ManagedMcpAuthConnection>> =>
+      this.transport.request(`/v1/mcp-auth-connections${pageQuery(options)}`, requestInit(options)),
+    get: (connectionId: string, options: RequestOptions = {}): Promise<ManagedMcpAuthConnection> =>
+      this.transport.request(`/v1/mcp-auth-connections/${encodeURIComponent(connectionId)}`, requestInit(options)),
+    create: (input: CreateManagedMcpAuthConnectionInput, options: RequestOptions = {}): Promise<ManagedMcpAuthConnection> =>
+      this.transport.request("/v1/mcp-auth-connections", {
+        method: "POST",
+        body: JSON.stringify(withOperationId({ headerName: null, ...input })),
+        ...requestInit(options),
+      }),
+    rotate: (connectionId: string, input: RotateManagedMcpAuthConnectionInput, options: RequestOptions = {}): Promise<ManagedMcpAuthConnection> =>
+      this.transport.request(`/v1/mcp-auth-connections/${encodeURIComponent(connectionId)}/rotate`, {
+        method: "POST",
+        body: JSON.stringify(withOperationId(input)),
+        ...requestInit(options),
+      }),
+    revoke: (connectionId: string, options: RequestOptions = {}): Promise<ManagedMcpAuthConnection> =>
+      this.transport.request(`/v1/mcp-auth-connections/${encodeURIComponent(connectionId)}/revoke`, {
+        method: "POST",
+        body: JSON.stringify({ operationId: randomIdempotencyKey() }),
+        ...requestInit(options),
+      }),
+  };
+
   readonly mcpServers = {
     list: (options: PageOptions = {}): Promise<Page<ManagedMcpServer>> =>
       this.transport.request(`/v1/mcp-servers${pageQuery(options)}`, requestInit(options)),
@@ -470,9 +499,31 @@ export class AgentClient {
     create: (input: CreateManagedMcpServerInput, options: RequestOptions = {}): Promise<ManagedMcpServer> =>
       this.transport.request("/v1/mcp-servers", {
         method: "POST",
-        body: JSON.stringify(withOperationId({ authMode: "none" as const, ...input })),
+        body: JSON.stringify(withOperationId({ authMode: "none" as const, authConnectionId: null, ...input })),
         ...requestInit(options),
       }),
+    createAuthenticated: async (
+      input: CreateAuthenticatedManagedMcpServerInput,
+      options: RequestOptions = {},
+    ): Promise<ManagedMcpServer> => {
+      const { authentication, ...server } = input;
+      const connection = await this.mcpAuthConnections.create({
+        label: authentication.label ?? `${server.displayName} credential`,
+        mode: authentication.mode,
+        headerName: authentication.headerName ?? null,
+        secret: authentication.secret,
+      }, options);
+      try {
+        return await this.mcpServers.create({
+          ...server,
+          authMode: authentication.mode,
+          authConnectionId: connection.connectionId,
+        }, options);
+      } catch (error) {
+        await this.mcpAuthConnections.revoke(connection.connectionId, options).catch(() => undefined);
+        throw error;
+      }
+    },
     refresh: (serverId: string, options: RequestOptions = {}): Promise<ManagedMcpServer> =>
       this.transport.request(`/v1/mcp-servers/${encodeURIComponent(serverId)}/refresh`, {
         method: "POST",

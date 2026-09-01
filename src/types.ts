@@ -280,6 +280,35 @@ export interface CreateManagedToolInput {
 }
 
 export type ManagedMcpServerStatus = "active" | "disabled" | "error";
+export type ManagedMcpAuthMode = "none" | "bearer" | "header";
+export type ManagedMcpAuthConnectionStatus =
+  | "pending_validation"
+  | "active"
+  | "invalid"
+  | "revoked";
+export interface ManagedMcpAuthConnection {
+  connectionId: string;
+  label: string;
+  mode: Exclude<ManagedMcpAuthMode, "none">;
+  headerName: string | null;
+  status: ManagedMcpAuthConnectionStatus;
+  displayHint: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lastValidatedAt: string | null;
+  lastUsedAt: string | null;
+}
+export interface CreateManagedMcpAuthConnectionInput {
+  operationId?: string;
+  label: string;
+  mode: Exclude<ManagedMcpAuthMode, "none">;
+  headerName?: string | null;
+  secret: string;
+}
+export interface RotateManagedMcpAuthConnectionInput {
+  operationId?: string;
+  secret: string;
+}
 export interface ManagedMcpTool {
   toolId: string;
   sourceName: string;
@@ -301,7 +330,8 @@ export interface ManagedMcpServer {
   serverId: string;
   displayName: string;
   endpoint: string;
-  authMode: "none";
+  authMode: ManagedMcpAuthMode;
+  authConnection: ManagedMcpAuthConnection | null;
   status: ManagedMcpServerStatus;
   currentSnapshotId: string | null;
   currentSnapshot: ManagedMcpSnapshot | null;
@@ -315,7 +345,17 @@ export interface CreateManagedMcpServerInput {
   serverId: string;
   displayName: string;
   endpoint: string;
-  authMode?: "none";
+  authMode?: ManagedMcpAuthMode;
+  authConnectionId?: string | null;
+}
+export interface CreateAuthenticatedManagedMcpServerInput
+  extends Omit<CreateManagedMcpServerInput, "authMode" | "authConnectionId"> {
+  authentication: {
+    label?: string;
+    mode: Exclude<ManagedMcpAuthMode, "none">;
+    headerName?: string | null;
+    secret: string;
+  };
 }
 
 export type ManagedSkillStatus = "active" | "disabled";

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.0 — 2026-09-02
+
+- Add tenant-scoped MCP bearer and bounded custom-header credential lifecycle APIs.
+- Add `mcpServers.createAuthenticated()` with automatic credential rollback when
+  server discovery fails.
+- Expose only credential metadata; secret values remain write-only.
+
 ## 0.9.0 — 2026-09-02
 
 - Add namespaced MCP server discovery, refresh, status, and pagination APIs.

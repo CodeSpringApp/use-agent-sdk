@@ -314,7 +314,7 @@ export class AgentSession {
     return this.transport.request(`/v1/sessions/${encodeURIComponent(this.id)}/turns`, {
       method: "POST",
       headers: { "Idempotency-Key": idempotencyKey },
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, attachments: options.attachments ?? [] }),
       ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
   }

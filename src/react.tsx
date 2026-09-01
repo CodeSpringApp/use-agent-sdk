@@ -3,11 +3,14 @@ import {
   createElement,
   memo,
   type CSSProperties,
+  type ClipboardEvent,
+  type DragEvent,
   type KeyboardEvent,
   type PropsWithChildren,
   type ReactNode,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -32,7 +35,9 @@ import type {
   SessionSnapshot,
   SubmitOptions,
   SubmitTurnResponse,
+  ExternalAssetRef,
 } from "./types";
+import type { AgentAttachmentAdapter } from "./attachments";
 import {
   highlightAgentCode,
   normalizeCodeLanguage,
@@ -82,6 +87,7 @@ export interface AgentCopy {
   empty: string;
   loading: string;
   thinking: string;
+  thinkingVerbs: readonly string[];
   placeholder: string;
   send: string;
   sending: string;
@@ -131,8 +137,16 @@ export const defaultAgentCopy: Readonly<AgentCopy> = Object.freeze({
   title: "Assistant",
   empty: "Start a conversation",
   loading: "Loading conversation…",
-  thinking: "Working…",
-  placeholder: "Message the agent — Shift+Enter for a new line",
+  thinking: "Thinking",
+  thinkingVerbs: Object.freeze([
+    "Thinking",
+    "Pondering",
+    "Exploring",
+    "Connecting",
+    "Shaping",
+    "Refining",
+  ]),
+  placeholder: "Message the agent",
   send: "Send message",
   sending: "Sending…",
   failed: "The agent could not complete this message.",
@@ -523,7 +537,7 @@ export const AgentMarkdown = memo(function AgentMarkdown({
     table: ({ children: content }) => <div style={{ margin: "10px 0", overflowX: "auto", border: `1px solid ${colors.hairline}`, borderRadius: colors.wellRadius }}><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>{content}</table></div>,
     th: ({ children: content }) => <th style={{ padding: "7px 9px", borderBottom: `1px solid ${colors.hairline}`, background: colors.well, color: colors.inkSecondary, fontWeight: 650, textAlign: "left" }}>{content}</th>,
     td: ({ children: content }) => <td style={{ padding: "7px 9px", borderBottom: `1px solid ${colors.hairline}`, verticalAlign: "top" }}>{content}</td>,
-    input: ({ checked, type }) => type === "checkbox" ? <input type="checkbox" checked={checked} readOnly tabIndex={-1} style={{ margin: "0 6px 0 0", accentColor: colors.accent }} /> : null,
+    input: ({ checked, type }) => type === "checkbox" ? <input type="checkbox" checked={checked} readOnly tabIndex={-1} style={{ width: 16, height: 16, flex: "0 0 16px", margin: "0 6px 0 0", accentColor: colors.accent }} /> : null,
     img: () => null,
     ...componentOverrides,
   }), [colors, componentOverrides, theme]);
@@ -758,15 +772,15 @@ function MultiSelectAgentUI({ request, response, disabled, submit, colors }: Con
     <div style={{ display: "grid", gap: 3 }}>
       {request.options.map((option) => {
         const checked = selected.includes(option.id);
-        return <label key={option.id} style={{ display: "flex", gap: 8, padding: "7px 9px", borderRadius: 7, color: disabled ? colors.inkTertiary : colors.ink, cursor: disabled ? "default" : "pointer" }}>
+        return <label key={option.id} style={{ display: "flex", alignItems: "flex-start", minHeight: 36, gap: 8, padding: "7px 9px", borderRadius: 7, color: disabled ? colors.inkTertiary : colors.ink, cursor: disabled ? "default" : "pointer" }}>
           <input
             type="checkbox"
             checked={checked}
             disabled={disabled || (!checked && selected.length >= maximum)}
             onChange={() => setSelected((current) => checked ? current.filter((id) => id !== option.id) : [...current, option.id])}
-            style={{ marginTop: 2, accentColor: colors.accent }}
+            style={{ width: 16, height: 16, flex: "0 0 16px", margin: "2px 0 0", accentColor: colors.accent }}
           />
-          <span><span style={{ display: "block", fontSize: 12, fontWeight: 600 }}>{option.label}</span>{option.description ? <span style={{ display: "block", color: colors.inkTertiary, fontSize: 11 }}>{option.description}</span> : null}</span>
+          <span style={{ minWidth: 0 }}><span style={{ display: "block", fontSize: 12, fontWeight: 600 }}>{option.label}</span>{option.description ? <span style={{ display: "block", color: colors.inkTertiary, fontSize: 11, overflowWrap: "anywhere" }}>{option.description}</span> : null}</span>
         </label>;
       })}
     </div>
@@ -810,7 +824,7 @@ function ReviewAgentUI({ request, disabled, submit, colors }: ControlProps<Extra
       {request.items.map((item) => <div key={item.id} style={{ display: "grid", gridTemplateColumns: "minmax(90px, 0.4fr) minmax(0, 1fr)", gap: 10 }}><dt style={{ color: colors.inkTertiary, fontSize: 11 }}>{item.label}</dt><dd style={{ margin: 0, color: colors.ink, fontSize: 12, overflowWrap: "anywhere" }}>{item.value}</dd></div>)}
     </dl>
     <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10, paddingTop: 9, borderTop: `1px solid ${colors.hairline}` }}>
-      <button type="button" disabled={disabled} onClick={() => submit({ requestId: request.requestId, kind: "review", value: "approved" })} style={{ ...actionStyle(colors, true), opacity: disabled ? 0.45 : 1 }}>{request.submitLabel ?? "Approve"}</button>
+      <button type="button" disabled={disabled} onClick={() => submit({ requestId: request.requestId, kind: "review", value: "approved" })} style={{ ...actionStyle(colors, true), opacity: disabled ? 0.45 : 1 }}>{request.submitLabel ?? "Confirm"}</button>
     </div>
   </div>;
 }
@@ -1836,8 +1850,152 @@ export interface AgentMessageListProps extends StyledProps {
   onRetryMessage?: (message: AgentChatMessage) => void | Promise<void>;
   onFeedback?: (message: AgentChatMessage, value: AgentFeedbackValue) => void | Promise<void>;
   onCopyMessage?: (message: AgentChatMessage) => void | Promise<void>;
+  workingStartedAt?: string | number | Date;
+  thinkingVerbs?: readonly string[];
+  renderThinking?: (state: AgentThinkingState) => ReactNode;
   theme?: Partial<AgentTheme>;
   copy?: Partial<AgentCopy>;
+}
+
+export interface AgentThinkingState {
+  verb: string;
+  elapsedMilliseconds: number;
+  elapsedLabel: string;
+}
+
+export interface AgentThinkingIndicatorProps extends StyledProps {
+  startedAt?: string | number | Date;
+  verbs?: readonly string[];
+  cycleMilliseconds?: number;
+  showElapsed?: boolean;
+  render?: (state: AgentThinkingState) => ReactNode;
+  theme?: Partial<AgentTheme>;
+  copy?: Partial<AgentCopy>;
+}
+
+const agentThinkingKeyframes = `
+@keyframes codespring-agent-sparkle-pulse {
+  0%, 100% { opacity: .56; transform: scale(.92); }
+  50% { opacity: .94; transform: scale(1); }
+}
+@keyframes codespring-agent-thinking-shimmer {
+  from { background-position: 180% 0; }
+  to { background-position: -80% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-codespring-agent-thinking-sparkle] { animation: none !important; }
+  [data-codespring-agent-thinking-label] {
+    animation: none !important;
+    background-image: none !important;
+    -webkit-text-fill-color: currentColor !important;
+  }
+}`;
+
+function parseStartedAt(value: string | number | Date | undefined, fallback: number): number {
+  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.getTime() : fallback;
+  if (typeof value === "number") return Number.isFinite(value) ? value : fallback;
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+  return fallback;
+}
+
+function formatThinkingElapsed(milliseconds: number): string {
+  const seconds = Math.max(0, milliseconds) / 1_000;
+  return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`;
+}
+
+export function AgentThinkingIndicator({
+  startedAt,
+  verbs,
+  cycleMilliseconds = 4_200,
+  showElapsed = true,
+  render,
+  className,
+  style,
+  theme,
+  copy,
+}: AgentThinkingIndicatorProps) {
+  const context = useAgentContext();
+  const colors = withThemeOverrides(context.theme, theme);
+  const labels = { ...context.copy, ...copy };
+  const fallbackStartedAt = useRef(Date.now());
+  const startedAtMilliseconds = parseStartedAt(startedAt, fallbackStartedAt.current);
+  const availableVerbs = verbs && verbs.length > 0
+    ? verbs
+    : labels.thinkingVerbs.length > 0
+      ? labels.thinkingVerbs
+      : [labels.thinking];
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = globalThis.setInterval(() => setNow(Date.now()), 100);
+    return () => globalThis.clearInterval(timer);
+  }, []);
+
+  const elapsedMilliseconds = Math.max(0, now - startedAtMilliseconds);
+  const cycle = Math.max(800, cycleMilliseconds);
+  const verb = availableVerbs[Math.floor(elapsedMilliseconds / cycle) % availableVerbs.length] ?? labels.thinking;
+  const elapsedLabel = formatThinkingElapsed(elapsedMilliseconds);
+  const thinkingState = { verb, elapsedMilliseconds, elapsedLabel };
+
+  if (render) return <>{render(thinkingState)}</>;
+
+  return (
+    <div
+      className={className}
+      role="status"
+      aria-label={showElapsed ? `${verb}, ${elapsedLabel} elapsed` : verb}
+      style={{
+        display: "flex",
+        minHeight: 20,
+        alignItems: "center",
+        gap: 8,
+        color: colors.inkSecondary,
+        fontFamily: colors.fontFamily,
+        fontSize: 11,
+        ...style,
+      }}
+    >
+      <style>{agentThinkingKeyframes}</style>
+      <svg
+        data-codespring-agent-thinking-sparkle=""
+        width="13"
+        height="13"
+        viewBox="0 0 16 16"
+        fill="none"
+        aria-hidden="true"
+        style={{
+          flex: "0 0 13px",
+          color: colors.inkTertiary,
+          transformOrigin: "center",
+          animation: "codespring-agent-sparkle-pulse 1.4s ease-in-out infinite",
+        }}
+      >
+        <path
+          d="M8 1.8c.38 3.74 2.46 5.82 6.2 6.2-3.74.38-5.82 2.46-6.2 6.2C7.62 10.46 5.54 8.38 1.8 8 5.54 7.62 7.62 5.54 8 1.8Z"
+          fill="currentColor"
+        />
+      </svg>
+      <span
+        data-codespring-agent-thinking-label=""
+        aria-hidden="true"
+        style={{
+          color: colors.inkSecondary,
+          backgroundImage: `linear-gradient(100deg, ${colors.inkTertiary} 18%, ${colors.ink} 46%, ${colors.inkTertiary} 74%)`,
+          backgroundSize: "220% 100%",
+          backgroundClip: "text",
+          WebkitBackgroundClip: "text",
+          WebkitTextFillColor: "transparent",
+          animation: "codespring-agent-thinking-shimmer 1.4s linear infinite",
+        }}
+      >
+        {verb}…
+      </span>
+      {showElapsed ? <span aria-hidden="true" style={{ color: colors.inkTertiary, fontVariantNumeric: "tabular-nums" }}>{elapsedLabel}</span> : null}
+    </div>
+  );
 }
 
 export function AgentMessageList({
@@ -1850,6 +2008,9 @@ export function AgentMessageList({
   onRetryMessage,
   onFeedback,
   onCopyMessage,
+  workingStartedAt,
+  thinkingVerbs,
+  renderThinking,
   className,
   style,
   theme,
@@ -1924,17 +2085,133 @@ export function AgentMessageList({
         );
       })}
       {isWorking && !messages.some((message) => message.status === "streaming") ? (
-        <div
-          role="status"
-          style={{ display: "flex", alignItems: "center", gap: 7, color: colors.inkSecondary, fontSize: 11 }}
-        >
-          <span aria-hidden="true" style={{ color: colors.inkTertiary, fontSize: 10 }}>✦</span>
-          {labels.thinking}
-        </div>
+        <AgentThinkingIndicator
+          {...(workingStartedAt === undefined ? {} : { startedAt: workingStartedAt })}
+          {...(thinkingVerbs === undefined ? {} : { verbs: thinkingVerbs })}
+          {...(renderThinking === undefined ? {} : { render: renderThinking })}
+          {...(theme === undefined ? {} : { theme })}
+          {...(copy === undefined ? {} : { copy })}
+        />
       ) : null}
       <div ref={end} />
     </div>
   );
+}
+
+export interface AgentComposerAttachment {
+  id: string;
+  fileName: string;
+  previewUrl: string;
+  status: "uploading" | "ready" | "failed";
+  asset?: ExternalAssetRef;
+  error?: string;
+}
+
+export interface AgentAttachmentController {
+  attachments: readonly AgentComposerAttachment[];
+  readyAssets: ExternalAssetRef[];
+  pending: boolean;
+  addFiles: (files: readonly File[]) => void;
+  retry: (id: string) => void;
+  remove: (id: string) => void;
+  clear: () => void;
+}
+
+export function useAgentAttachments(
+  adapter?: AgentAttachmentAdapter,
+): AgentAttachmentController {
+  const [attachments, setAttachments] = useState<AgentComposerAttachment[]>([]);
+  const files = useRef(new Map<string, File>());
+  const controllers = useRef(new Map<string, AbortController>());
+  const latest = useRef(attachments);
+  useEffect(() => { latest.current = attachments; }, [attachments]);
+
+  const upload = (id: string, file: File) => {
+    if (!adapter) return;
+    controllers.current.get(id)?.abort();
+    const controller = new AbortController();
+    controllers.current.set(id, controller);
+    setAttachments((current) => current.map((attachment) => {
+      if (attachment.id !== id) return attachment;
+      const { asset: _asset, error: _error, ...rest } = attachment;
+      return { ...rest, status: "uploading" };
+    }));
+    void adapter.upload(file, { signal: controller.signal }).then((asset) => {
+      if (controller.signal.aborted) return;
+      setAttachments((current) => current.map((attachment) => {
+        if (attachment.id !== id) return attachment;
+        const { error: _error, ...rest } = attachment;
+        return { ...rest, status: "ready", asset };
+      }));
+    }, (error: unknown) => {
+      if (controller.signal.aborted) return;
+      setAttachments((current) => current.map((attachment) => {
+        if (attachment.id !== id) return attachment;
+        const { asset: _asset, ...rest } = attachment;
+        return {
+          ...rest,
+          status: "failed",
+          error: error instanceof Error ? error.message : "Attachment upload failed",
+        };
+      }));
+    }).finally(() => {
+      if (controllers.current.get(id) === controller) controllers.current.delete(id);
+    });
+  };
+
+  const remove = (id: string) => {
+    const attachment = latest.current.find((candidate) => candidate.id === id);
+    controllers.current.get(id)?.abort();
+    controllers.current.delete(id);
+    files.current.delete(id);
+    if (attachment) {
+      URL.revokeObjectURL(attachment.previewUrl);
+      if (attachment.asset) void adapter?.remove?.(attachment.asset);
+    }
+    setAttachments((current) => current.filter((candidate) => candidate.id !== id));
+  };
+
+  const clear = () => {
+    for (const attachment of latest.current) {
+      controllers.current.get(attachment.id)?.abort();
+      URL.revokeObjectURL(attachment.previewUrl);
+    }
+    controllers.current.clear();
+    files.current.clear();
+    setAttachments([]);
+  };
+
+  useEffect(() => () => {
+    for (const controller of controllers.current.values()) controller.abort();
+    for (const attachment of latest.current) URL.revokeObjectURL(attachment.previewUrl);
+  }, []);
+
+  return {
+    attachments,
+    readyAssets: attachments.flatMap((attachment) => attachment.asset ? [attachment.asset] : []),
+    pending: attachments.some((attachment) => attachment.status !== "ready"),
+    addFiles: (selected) => {
+      if (!adapter) return;
+      const available = Math.max(0, (adapter.maximumFiles ?? 4) - latest.current.length);
+      for (const file of selected.slice(0, available)) {
+        const id = crypto.randomUUID();
+        files.current.set(id, file);
+        setAttachments((current) => [...current, {
+          id,
+          fileName: file.name,
+          previewUrl: URL.createObjectURL(file),
+          status: "uploading",
+        }]);
+        upload(id, file);
+      }
+    },
+    retry: (id) => {
+      const file = files.current.get(id);
+      if (file) upload(id, file);
+    },
+    remove,
+    clear,
+  };
 }
 
 export interface AgentComposerProps extends StyledProps {
@@ -1946,6 +2223,12 @@ export interface AgentComposerProps extends StyledProps {
   leadingActions?: ReactNode;
   trailingActions?: ReactNode;
   onCancel?: () => void | Promise<void>;
+  maxRows?: number;
+  attachments?: readonly AgentComposerAttachment[];
+  attachmentAccept?: string;
+  onAttachFiles?: (files: readonly File[]) => void;
+  onRetryAttachment?: (id: string) => void;
+  onRemoveAttachment?: (id: string) => void;
   theme?: Partial<AgentTheme>;
   copy?: Partial<AgentCopy>;
 }
@@ -1959,6 +2242,12 @@ export function AgentComposer({
   leadingActions,
   trailingActions,
   onCancel,
+  maxRows = 8,
+  attachments = [],
+  attachmentAccept,
+  onAttachFiles,
+  onRetryAttachment,
+  onRemoveAttachment,
   className,
   style,
   theme,
@@ -1967,12 +2256,55 @@ export function AgentComposer({
   const context = useAgentContext();
   const colors = withThemeOverrides(context.theme, theme);
   const labels = { ...context.copy, ...copy };
+  const textarea = useRef<HTMLTextAreaElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+
+  useLayoutEffect(() => {
+    const element = textarea.current;
+    if (!element) return;
+    const lineHeight = Number.parseFloat(globalThis.getComputedStyle(element).lineHeight);
+    const resolvedLineHeight = Number.isFinite(lineHeight) ? lineHeight : 19;
+    const maximumHeight = resolvedLineHeight * Math.max(1, Math.floor(maxRows));
+    element.style.height = "auto";
+    const naturalHeight = element.scrollHeight;
+    element.style.height = `${Math.min(naturalHeight, maximumHeight)}px`;
+    element.style.overflowY = naturalHeight > maximumHeight + 1 ? "auto" : "hidden";
+  }, [maxRows, value]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+    if (
+      event.key === "Enter" &&
+      !event.shiftKey &&
+      !event.altKey &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.nativeEvent.isComposing
+    ) {
       event.preventDefault();
       if (value.trim() && !disabled) void onSubmit();
     }
+  };
+  const uploadPending = attachments.some((attachment) => attachment.status === "uploading");
+  const uploadFailed = attachments.some((attachment) => attachment.status === "failed");
+  const canSend = (value.trim().length > 0 || attachments.length > 0) && !uploadPending && !uploadFailed;
+
+  const acceptFiles = (files: readonly File[]) => {
+    if (files.length > 0) onAttachFiles?.(files);
+  };
+
+  const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = [...event.clipboardData.files];
+    if (files.length === 0) return;
+    event.preventDefault();
+    acceptFiles(files);
+  };
+
+  const onDrop = (event: DragEvent<HTMLDivElement>) => {
+    if (!onAttachFiles) return;
+    event.preventDefault();
+    setDragging(false);
+    acceptFiles([...event.dataTransfer.files]);
   };
 
   return (
@@ -1987,16 +2319,37 @@ export function AgentComposer({
       }}
     >
       <div
+        onDragEnter={(event) => { if (onAttachFiles) { event.preventDefault(); setDragging(true); } }}
+        onDragOver={(event) => { if (onAttachFiles) event.preventDefault(); }}
+        onDragLeave={(event) => { if (event.currentTarget === event.target) setDragging(false); }}
+        onDrop={onDrop}
         style={{
           display: "grid",
           gap: 8,
           padding: "12px 10px 10px 14px",
           background: colors.well,
-          border: `1px solid ${error ? colors.statusBad : colors.hairline}`,
+          border: `1px solid ${error ? colors.statusBad : dragging ? colors.accent : colors.hairline}`,
           borderRadius: 14,
         }}
       >
+        {attachments.length > 0 ? (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {attachments.map((attachment) => (
+              <div key={attachment.id} style={{ position: "relative", width: 72, height: 72, overflow: "hidden", borderRadius: 10, border: `1px solid ${attachment.status === "failed" ? colors.statusBad : colors.hairline}`, background: colors.canvas }}>
+                <img src={attachment.previewUrl} alt={attachment.fileName} style={{ width: "100%", height: "100%", objectFit: "cover", opacity: attachment.status === "ready" ? 1 : 0.52 }} />
+                {attachment.status === "uploading" ? (
+                  <span aria-label="Uploading attachment" style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", color: colors.ink, fontSize: 10, background: "rgba(0,0,0,.18)" }}>Uploading</span>
+                ) : null}
+                {attachment.status === "failed" ? (
+                  <button type="button" onClick={() => onRetryAttachment?.(attachment.id)} style={{ position: "absolute", inset: 0, border: 0, color: colors.ink, background: "rgba(0,0,0,.55)", cursor: "pointer", font: "inherit", fontSize: 10 }}>Retry</button>
+                ) : null}
+                <button type="button" aria-label={`Remove ${attachment.fileName}`} onClick={() => onRemoveAttachment?.(attachment.id)} style={{ position: "absolute", top: 4, right: 4, display: "grid", width: 18, height: 18, placeItems: "center", padding: 0, border: 0, borderRadius: "50%", color: "white", background: "rgba(0,0,0,.72)", cursor: "pointer", fontSize: 12 }}>×</button>
+              </div>
+            ))}
+          </div>
+        ) : null}
         <textarea
+          ref={textarea}
           aria-label={labels.placeholder}
           rows={1}
           value={value}
@@ -2004,12 +2357,14 @@ export function AgentComposer({
           placeholder={disabled ? labels.sending : labels.placeholder}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={onKeyDown}
+          onPaste={onPaste}
           style={{
             flex: 1,
             width: "100%",
             minHeight: 22,
-            maxHeight: 160,
-            resize: "vertical",
+            maxHeight: `${Math.max(1, Math.floor(maxRows)) * 1.45}em`,
+            overflowY: "hidden",
+            resize: "none",
             border: 0,
             outline: 0,
             padding: 0,
@@ -2021,6 +2376,14 @@ export function AgentComposer({
           }}
         />
         <div style={{ display: "flex", minHeight: 28, alignItems: "center", gap: 7 }}>
+          {onAttachFiles ? (
+            <>
+              <input ref={fileInput} type="file" multiple accept={attachmentAccept} tabIndex={-1} aria-hidden="true" style={{ display: "none" }} onChange={(event) => { acceptFiles([...(event.target.files ?? [])]); event.target.value = ""; }} />
+              <button type="button" aria-label="Attach files" title="Attach files" disabled={disabled} onClick={() => fileInput.current?.click()} style={{ display: "grid", width: 26, height: 26, placeItems: "center", padding: 0, border: 0, borderRadius: 7, color: colors.inkSecondary, background: "transparent", cursor: disabled ? "default" : "pointer" }}>
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.2 8.6 9.7 4a2.5 2.5 0 0 1 3.6 3.5l-5.4 5.4a3.6 3.6 0 0 1-5.1-5.1l5.1-5.1" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              </button>
+            </>
+          ) : null}
           {leadingActions}
           <span style={{ flex: 1 }} />
           {trailingActions}
@@ -2028,7 +2391,7 @@ export function AgentComposer({
             type="button"
             aria-label={disabled && onCancel ? "Stop agent" : labels.send}
             title={disabled && onCancel ? "Stop agent" : labels.send}
-            disabled={disabled ? !onCancel : !value.trim()}
+            disabled={disabled ? !onCancel : !canSend}
             onClick={() => void (disabled && onCancel ? onCancel() : onSubmit())}
             style={{
               display: "grid",
@@ -2040,8 +2403,8 @@ export function AgentComposer({
               borderRadius: "50%",
               color: colors.canvas,
               background: disabled && !onCancel ? colors.inkTertiary : colors.ink,
-              cursor: disabled && !onCancel ? "default" : !disabled && !value.trim() ? "default" : "pointer",
-              opacity: !disabled && !value.trim() ? 0.38 : 1,
+              cursor: disabled && !onCancel ? "default" : !disabled && !canSend ? "default" : "pointer",
+              opacity: !disabled && !canSend ? 0.38 : 1,
             }}
           >
             {disabled && onCancel ? (
@@ -2064,6 +2427,10 @@ export interface AgentChatProps extends StyledProps {
   header?: ReactNode;
   composerLeadingActions?: ReactNode;
   composerTrailingActions?: ReactNode;
+  composerMaxRows?: number;
+  attachmentAdapter?: AgentAttachmentAdapter;
+  thinkingVerbs?: readonly string[];
+  renderThinking?: (state: AgentThinkingState) => ReactNode;
   /** @deprecated Prefer the header slot; the default chat has no header. */
   title?: string;
   theme?: Partial<AgentTheme>;
@@ -2082,6 +2449,10 @@ export function AgentChat({
   header,
   composerLeadingActions,
   composerTrailingActions,
+  composerMaxRows,
+  attachmentAdapter,
+  thinkingVerbs,
+  renderThinking,
   title,
   className,
   style,
@@ -2101,6 +2472,7 @@ export function AgentChat({
   const session = useAgentSession(sessionId);
   const [draft, setDraft] = useState("");
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const attachmentController = useAgentAttachments(attachmentAdapter);
   const isWorking =
     session.snapshot?.turns.some((turn) => turn.status === "queued" || turn.status === "running") ??
     false;
@@ -2110,11 +2482,13 @@ export function AgentChat({
 
   const submit = async () => {
     const content = draft.trim();
-    if (!content || isWorking) return;
+    const assets = attachmentController.readyAssets;
+    if ((!content && assets.length === 0) || isWorking || attachmentController.pending) return;
     setDraft("");
     setSubmitError(null);
     try {
-      await session.submit(content);
+      await session.submit(content, { attachments: assets });
+      attachmentController.clear();
     } catch (error) {
       setDraft(content);
       const normalized = error instanceof Error ? error : new Error(String(error));
@@ -2171,6 +2545,9 @@ export function AgentChat({
             messages={session.messages}
             toolCalls={session.toolCalls}
             isWorking={isWorking}
+            {...(activeTurn?.createdAt === undefined ? {} : { workingStartedAt: activeTurn.createdAt })}
+            {...(thinkingVerbs === undefined ? {} : { thinkingVerbs })}
+            {...(renderThinking === undefined ? {} : { renderThinking })}
             {...(renderMessage === undefined ? {} : { renderMessage })}
             {...(renderToolCall === undefined ? {} : { renderToolCall })}
             {...(messageActions === undefined ? {} : { messageActions })}
@@ -2195,6 +2572,14 @@ export function AgentChat({
             error={submitError ?? session.error?.message ?? null}
             leadingActions={composerLeadingActions}
             trailingActions={composerTrailingActions}
+            attachments={attachmentController.attachments}
+            {...(attachmentAdapter?.accept === undefined ? {} : { attachmentAccept: attachmentAdapter.accept })}
+            {...(attachmentAdapter ? {
+              onAttachFiles: attachmentController.addFiles,
+              onRetryAttachment: attachmentController.retry,
+              onRemoveAttachment: attachmentController.remove,
+            } : {})}
+            {...(composerMaxRows === undefined ? {} : { maxRows: composerMaxRows })}
             {...(activeTurn ? { onCancel: () => session.cancel(activeTurn.id) } : {})}
             {...(theme === undefined ? {} : { theme })}
             {...(copy === undefined ? {} : { copy })}

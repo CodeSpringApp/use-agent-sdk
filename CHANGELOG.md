@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.0 — 2026-09-01
+
+- Add customer-owned, presigned attachment uploads with optimistic previews,
+  paste/drop/picker input, retry, removal, and opaque asset references.
+- Add a signed customer-hosted asset resolver handler; runtime requests are
+  pinned to an immutable agent revision and never accept storage URLs in turns.
+- Add an eight-line auto-growing composer without native resize chrome.
+- Add customizable Ferb-style thinking verbs, shimmer, elapsed time, and a
+  reduced-motion-safe four-point sparkle animation.
+
 ## 0.7.0 — 2026-08-31
 
 - Add opt-in message copy, retry, binary feedback, and token-usage presentation

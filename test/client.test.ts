@@ -118,6 +118,41 @@ describe("public SDK", () => {
     );
   });
 
+  test("submits opaque external asset references without storage URLs", async () => {
+    const requests: Request[] = [];
+    const client = createClient({
+      endpoint: "http://localhost:8787",
+      apiKey: "ua_test_secret",
+      fetch: async (input, init) => {
+        requests.push(new Request(input, init));
+        return Response.json({
+          sessionId: "session-1",
+          turnId: "turn-1",
+          status: "queued",
+          cursor: 2,
+          duplicate: false,
+        }, { status: 202 });
+      },
+    });
+    await client.sessions.get("session-1").submit("Inspect this", {
+      attachments: [{
+        kind: "external",
+        assetId: "tenant-assets/reference-1",
+        mediaType: "image/png",
+        sizeBytes: 128,
+      }],
+    });
+    expect(await requests[0]?.json()).toEqual({
+      content: "Inspect this",
+      attachments: [{
+        kind: "external",
+        assetId: "tenant-assets/reference-1",
+        mediaType: "image/png",
+        sizeBytes: 128,
+      }],
+    });
+  });
+
   test("uses the supported paginated management routes and generates operation IDs", async () => {
     const requests: Request[] = [];
     const client = createClient({

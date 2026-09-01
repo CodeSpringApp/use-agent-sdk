@@ -141,6 +141,21 @@ export interface RequestOptions {
 
 export interface SubmitOptions extends RequestOptions {
   idempotencyKey?: string;
+  attachments?: ExternalAssetRef[];
+}
+
+export interface ExternalAssetRef {
+  kind: "external";
+  assetId: string;
+  mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif";
+  sizeBytes: number;
+  sha256?: string;
+}
+
+export interface AgentAssetResolver {
+  type: "customer_hosted";
+  endpoint: string;
+  handlerRevision: string;
 }
 
 export interface PageOptions extends RequestOptions {
@@ -162,6 +177,7 @@ export interface ManagedAgentSummary {
   displayName: string;
   description: string;
   modelProfileId: string;
+  assetResolver: AgentAssetResolver | null;
   status: ManagedAgentStatus;
   currentRevisionId: string | null;
   createdAt: string;
@@ -180,6 +196,7 @@ export interface ManagedAgentRevision {
   maxModelSteps: number;
   maxToolCalls: number;
   tools: Array<{ toolId: string; revisionId: string; modelName: string }>;
+  assetResolver: AgentAssetResolver | null;
   createdAt: string;
 }
 
@@ -197,6 +214,7 @@ export interface AgentDraftInput {
   instructions: string;
   modelProfileId: string;
   toolIds?: string[];
+  assetResolver?: AgentAssetResolver | null;
 }
 
 export interface CreateManagedAgentInput extends AgentDraftInput {

@@ -194,6 +194,60 @@ The `/browser` endpoint is intentional: it accepts only short-lived client
 tokens and is the only runtime surface with browser CORS. Server API keys stay
 on the endpoint root and must never be shipped to a browser.
 
+### Customer-owned attachments
+
+Third-party attachments upload directly to storage owned by your application.
+The browser receives a presigned target from your server and sends only an
+opaque asset reference to CodeSpring; bucket URLs and storage credentials are
+never part of a turn.
+
+```tsx
+import { createPresignedAttachmentAdapter } from "@codespring-app/use-agent";
+
+const attachments = createPresignedAttachmentAdapter({
+  async prepareUpload(file, { signal }) {
+    const response = await fetch("/api/agent-assets/prepare", {
+      method: "POST",
+      signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: file.name,
+        mediaType: file.type,
+        sizeBytes: file.size,
+      }),
+    });
+    return response.json(); // { asset: ExternalAssetRef, upload: { url, headers } }
+  },
+});
+
+<AgentChat sessionId={sessionId} attachmentAdapter={attachments} />;
+```
+
+The default composer shows the image immediately, uploads it in the background,
+and keeps retry/removal local to that attachment. File picker, paste, and drag
+and drop share the same state machine. Sending stays disabled until every
+selected attachment is resolved or removed.
+
+Your server exposes the resolver pinned on the published agent revision:
+
+```ts
+import { createAttachmentResolverHandler } from "@codespring-app/use-agent";
+
+export const POST = createAttachmentResolverHandler({
+  endpoint: "https://app.example.com/api/agent-assets/resolve",
+  handlerRevision: "assets-2026-09-01",
+  async resolve({ asset, tenantId, signal }) {
+    return storageFor(tenantId).get(asset.assetId, { signal });
+  },
+});
+```
+
+The handler verifies CodeSpring's short-lived signature, exact request body,
+tenant/environment, agent revision, endpoint audience, handler revision, and
+asset metadata before returning bytes. Register the same endpoint and handler
+revision as the agent's `assetResolver`. Keep pinned resolver revisions
+available while durable sessions can still replay them.
+
 The React session store loads durable history, then switches to a live
 WebSocket using a 30-second, single-use ticket. It keeps one contiguous event
 cursor, removes replay/live duplicates, repairs gaps over HTTP, and reconnects
@@ -205,6 +259,12 @@ an edge-to-edge canvas, user messages as quiet trailing wells, tool calls as
 compact inspectable activity rows, and the live-edge composer without a shadow.
 `paperLightTheme`, `paperDarkTheme`, theme/copy overrides, slots, and render
 functions are available for customization.
+
+The composer grows from one to eight lines and sends only on bare Enter; Shift,
+Option, Command, or Control with Enter inserts a newline. During a turn, the
+default thinking indicator rotates customizable verbs, shimmers the active
+label, shows elapsed time, and animates the spring glyph without moving its
+layout box. Reduced-motion preferences disable nonessential motion.
 
 Message actions are opt-in. Copy can work locally; retry and feedback are
 callback-driven so applications can call their authenticated, rate-limited

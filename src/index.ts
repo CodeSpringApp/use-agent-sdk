@@ -7,6 +7,18 @@ export {
   createClient,
 } from "./client";
 export type * from "./types";
+export {
+  createPresignedAttachmentAdapter,
+  createAttachmentResolverHandler,
+} from "./attachments";
+export type {
+  AgentAttachmentAdapter,
+  AgentAttachmentUploadContext,
+  AttachmentResolverContext,
+  AttachmentResolverHandlerOptions,
+  PresignedAttachmentAdapterOptions,
+  PresignedUploadPlan,
+} from "./attachments";
 export { AgentEventBuffer, type AgentEventMergeResult } from "./event-buffer";
 export {
   CustomerToolError,

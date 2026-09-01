@@ -3,10 +3,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createBrowserClient } from "../src";
 import {
   AgentCodeBlock,
+  AgentComposer,
   AgentGenerativeUI,
   AgentMarkdown,
   AgentMessage,
   AgentProvider,
+  AgentThinkingIndicator,
   agentThemeVariables,
   createAgentAppearance,
   createAgentClient,
@@ -294,6 +296,98 @@ describe("React SDK", () => {
     expect(html).toContain("Best quality");
     expect(html).not.toContain("agent-builder");
     expect(html).not.toContain("control-plane");
+  });
+
+  test("keeps multi-select checkboxes fixed beside wrapping copy", () => {
+    const html = renderToStaticMarkup(
+      <AgentGenerativeUI
+        request={{
+          requestId: "capabilities",
+          kind: "multi_select",
+          title: "Choose capabilities",
+          options: [{
+            id: "vision",
+            label: "Vision",
+            description: "A deliberately long description that can wrap without compressing the native checkbox.",
+          }],
+        }}
+        onSubmit={() => undefined}
+      />,
+    );
+
+    expect(html).toContain('type="checkbox"');
+    expect(html).toContain("width:16px");
+    expect(html).toContain("height:16px");
+    expect(html).toContain("flex:0 0 16px");
+    expect(html).toContain("min-height:36px");
+  });
+
+  test("uses neutral confirmation copy unless a host supplies the real effect", () => {
+    const fallback = renderToStaticMarkup(
+      <AgentGenerativeUI
+        request={{
+          requestId: "review",
+          kind: "review",
+          title: "Review",
+          items: [{ id: "scope", label: "Scope", value: "One resource" }],
+        }}
+        onSubmit={() => undefined}
+      />,
+    );
+    const explicit = renderToStaticMarkup(
+      <AgentGenerativeUI
+        request={{
+          requestId: "publish",
+          kind: "review",
+          title: "Review",
+          submitLabel: "Publish new version",
+          items: [{ id: "scope", label: "Scope", value: "One resource" }],
+        }}
+        onSubmit={() => undefined}
+      />,
+    );
+
+    expect(fallback).toContain("Confirm");
+    expect(fallback).not.toContain(">Approve<");
+    expect(explicit).toContain("Publish new version");
+  });
+
+  test("renders an auto-growing composer without the browser resize control", () => {
+    const html = renderToStaticMarkup(
+      <AgentProvider client={createBrowserClient({
+        endpoint: "http://localhost:8787/browser",
+        getClientToken: async () => "test-token",
+      })}>
+        <AgentComposer
+          value={"First line\nSecond line"}
+          onChange={() => undefined}
+          onSubmit={() => undefined}
+        />
+      </AgentProvider>,
+    );
+
+    expect(html).toContain("resize:none");
+    expect(html).toContain("overflow-y:hidden");
+    expect(html).toContain("max-height:11.6em");
+    expect(html).not.toContain("resize:vertical");
+  });
+
+  test("renders Ferb-style thinking motion with rotating copy and elapsed time", () => {
+    const html = renderToStaticMarkup(
+      <AgentProvider client={createBrowserClient({
+        endpoint: "http://localhost:8787/browser",
+        getClientToken: async () => "test-token",
+      })}>
+        <AgentThinkingIndicator startedAt={Date.now()} />
+      </AgentProvider>,
+    );
+
+    expect(html).toContain("data-codespring-agent-thinking-sparkle");
+    expect(html).toContain("data-codespring-agent-thinking-label");
+    expect(html).toContain("codespring-agent-thinking-shimmer");
+    expect(html).toContain("prefers-reduced-motion: reduce");
+    expect(html).toContain("Thinking…");
+    expect(html).toContain("0.0s");
   });
 
   test("reduces the canonical runtime compatibility fixture", async () => {

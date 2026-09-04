@@ -283,7 +283,7 @@ describe("public SDK", () => {
         if (path === "/v1/skills/support-style/file") {
           return Response.json({ file: null, text: "# Support style", contentBase64: null });
         }
-        if (path === "/v1/skill-catalogue") return Response.json({ items: [], cursor: null, hasMore: false });
+        if (path === "/v1/skill-catalogue") return Response.json({ items: [], cursor: null, hasMore: false, total: 0, categories: [] });
         if (request.method === "GET") return Response.json({ catalogueId: "codespring/support-style" });
         return Response.json({ skillId: "support-style" });
       },
@@ -293,7 +293,7 @@ describe("public SDK", () => {
     expect(validated.files.length).toBe(0);
     await client.skills.listFiles("support-style");
     await client.skills.readFile("support-style", "references/policy.md");
-    await client.skillCatalogue.list({ limit: 10 });
+    await client.skillCatalogue.list({ limit: 10, query: "support", category: "Customer support" });
     await client.skillCatalogue.get("codespring/support-style");
     await client.skillCatalogue.install("codespring/support-style");
 
@@ -306,6 +306,8 @@ describe("public SDK", () => {
       "POST /v1/skill-catalogue/codespring%2Fsupport-style/install",
     ]);
     expect(new URL(requests[2]!.url).searchParams.get("path")).toBe("references/policy.md");
+    expect(new URL(requests[3]!.url).searchParams.get("q")).toBe("support");
+    expect(new URL(requests[3]!.url).searchParams.get("category")).toBe("Customer support");
     expect(await requests[5]!.json()).toMatchObject({ operationId: expect.any(String) });
   });
 

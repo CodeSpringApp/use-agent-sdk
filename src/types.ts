@@ -439,6 +439,15 @@ export interface ManagedSkillCatalogueSummary {
 }
 export interface ManagedSkillCatalogueEntry extends ManagedSkillCatalogueSummary { files: ManagedSkillFile[] }
 export interface InstallManagedSkillCatalogueInput { operationId?: string; version?: string; contextBudgetChars?: number }
+export interface SkillCataloguePageOptions extends PageOptions {
+  query?: string;
+  category?: string;
+}
+export interface SkillCatalogueCategory { name: string; count: number }
+export interface SkillCataloguePage extends Page<ManagedSkillCatalogueSummary> {
+  total: number;
+  categories: SkillCatalogueCategory[];
+}
 
 export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 

@@ -39,6 +39,11 @@ import type {
 } from "./types";
 import type { AgentAttachmentAdapter } from "./attachments";
 import {
+  getMcpAppDescriptor,
+  McpApp,
+  type McpAppsHost,
+} from "./mcp-apps";
+import {
   highlightAgentCode,
   normalizeCodeLanguage,
   type AgentCodeLanguage,
@@ -228,6 +233,7 @@ function withThemeOverrides(base: AgentTheme, overrides: Partial<AgentTheme> | u
 
 interface AgentContextValue {
   client: AgentClient;
+  mcpApps?: McpAppsHost;
   mode: "light" | "dark";
   theme: AgentTheme;
   copy: AgentCopy;
@@ -238,6 +244,8 @@ const AgentContext = createContext<AgentContextValue | null>(null);
 
 export interface AgentProviderProps extends PropsWithChildren {
   client: AgentClient;
+  /** Enables sandboxed MCP Apps rendering for compatible MCP tool results. */
+  mcpApps?: McpAppsHost;
   appearance?: AgentAppearance;
   theme?: Partial<AgentTheme>;
   copy?: Partial<AgentCopy>;
@@ -257,6 +265,7 @@ function useStablePartial<T extends Record<string, unknown>>(value: T | undefine
 
 export function AgentProvider({
   client,
+  mcpApps,
   appearance = paperAppearance,
   theme,
   copy,
@@ -281,12 +290,13 @@ export function AgentProvider({
   const value = useMemo(
     () => ({
       client,
+      ...(mcpApps ? { mcpApps } : {}),
       mode: resolvedMode,
       theme: resolvedTheme,
       copy: resolvedCopy,
       stores,
     }),
-    [client, resolvedMode, resolvedTheme, resolvedCopy, stores],
+    [client, mcpApps, resolvedMode, resolvedTheme, resolvedCopy, stores],
   );
   return createElement(AgentContext.Provider, { value }, children);
 }
@@ -2061,8 +2071,33 @@ export function AgentMessageList({
       ) : null}
       {transcript.map((row) => {
         if (row.type === "tool") {
+          const appDescriptor = getMcpAppDescriptor(row.item.output);
           return renderToolCall ? (
             <div key={`tool:${row.item.id}`}>{renderToolCall(row.item)}</div>
+          ) : context.mcpApps && appDescriptor && row.item.status === "completed" ? (
+            <McpApp
+              key={`tool:${row.item.id}`}
+              host={context.mcpApps}
+              descriptor={appDescriptor}
+              toolName={row.item.name}
+              input={row.item.input}
+              output={row.item.output}
+              style={{
+                overflow: "hidden",
+                border: `1px solid ${colors.hairline}`,
+                borderRadius: colors.containerRadius,
+                background: colors.well,
+              }}
+              loadingFallback={<span style={{ color: colors.inkSecondary, fontSize: 12 }}>Loading app…</span>}
+              errorFallback={(error, retry) => (
+                <div style={{ padding: 14, color: colors.inkSecondary, fontSize: 12 }}>
+                  <div>{error.message || "This app could not be loaded."}</div>
+                  <button type="button" onClick={retry} style={{ ...messageActionStyle(colors), marginTop: 8 }}>
+                    Retry app
+                  </button>
+                </div>
+              )}
+            />
           ) : (
             <AgentToolCall
               key={`tool:${row.item.id}`}
@@ -2611,4 +2646,19 @@ export function AgentChat({
 }
 
 export { createBrowserClient } from "./client";
+export {
+  createMcpAppsHost,
+  getMcpAppDescriptor,
+  McpApp,
+} from "./mcp-apps";
+export type {
+  CreateMcpAppsHostOptions,
+  McpAppDescriptor,
+  McpAppProps,
+  McpAppResource,
+  McpAppsHost,
+  McpAppsHostPolicy,
+  McpAppToolContext,
+  McpAppToolResult,
+} from "./mcp-apps";
 export type { BrowserAgentClientOptions, SessionSnapshot } from "./types";

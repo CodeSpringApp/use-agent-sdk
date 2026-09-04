@@ -43,9 +43,10 @@ import type {
   ManagedSkillPackagePreview,
   ManagedSkillFile,
   ManagedSkillFileContent,
-  ManagedSkillCatalogueSummary,
   ManagedSkillCatalogueEntry,
   InstallManagedSkillCatalogueInput,
+  SkillCataloguePage,
+  SkillCataloguePageOptions,
 } from "./types";
 
 export class AgentError extends Error {
@@ -580,8 +581,8 @@ export class AgentClient {
   };
 
   readonly skillCatalogue = {
-    list: (options: PageOptions = {}): Promise<Page<ManagedSkillCatalogueSummary>> =>
-      this.transport.request(`/v1/skill-catalogue${pageQuery(options)}`, requestInit(options)),
+    list: (options: SkillCataloguePageOptions = {}): Promise<SkillCataloguePage> =>
+      this.transport.request(`/v1/skill-catalogue${skillCatalogueQuery(options)}`, requestInit(options)),
     get: (catalogueId: string, options: RequestOptions = {}): Promise<ManagedSkillCatalogueEntry> =>
       this.transport.request(`/v1/skill-catalogue/${encodeURIComponent(catalogueId)}`, requestInit(options)),
     install: (catalogueId: string, input: InstallManagedSkillCatalogueInput = {}, options: RequestOptions = {}): Promise<ManagedSkill> =>
@@ -597,6 +598,16 @@ function pageQuery(options: PageOptions): string {
   const query = new URLSearchParams();
   if (options.limit !== undefined) query.set("limit", String(options.limit));
   if (options.cursor !== undefined) query.set("cursor", options.cursor);
+  const value = query.toString();
+  return value ? `?${value}` : "";
+}
+
+function skillCatalogueQuery(options: SkillCataloguePageOptions): string {
+  const query = new URLSearchParams();
+  if (options.limit !== undefined) query.set("limit", String(options.limit));
+  if (options.cursor !== undefined) query.set("cursor", options.cursor);
+  if (options.query?.trim()) query.set("q", options.query.trim());
+  if (options.category?.trim()) query.set("category", options.category.trim());
   const value = query.toString();
   return value ? `?${value}` : "";
 }

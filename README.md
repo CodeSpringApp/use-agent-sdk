@@ -418,6 +418,39 @@ import { AgentGenerativeUI } from "@codespring-app/use-agent/react";
 standalone. Session hooks and connected chat components still require
 `AgentProvider`.
 
+### MCP Apps
+
+MCP tools can return interactive Apps linked by `_meta.ui.resourceUri`. Enable
+them explicitly with a dedicated, cross-origin sandbox proxy and server-backed
+callbacks. App HTML never enters your React tree or main document.
+
+```tsx
+import {
+  AgentChat,
+  AgentProvider,
+  createMcpAppsHost,
+} from "@codespring-app/use-agent/react";
+
+const mcpApps = createMcpAppsHost({
+  sandboxUrl: "https://mcp-apps-sandbox.example.com/",
+  loadResource: (context, signal) =>
+    api.mcpApps.readResource(context.descriptor, { signal }),
+  callTool: (context, request, signal) =>
+    api.mcpApps.callTool(context.descriptor, request, { signal }),
+  openLink: async (_context, url) => confirm(`Open ${url}?`),
+});
+
+<AgentProvider client={agentClient} mcpApps={mcpApps}>
+  <AgentChat sessionId={sessionId} />
+</AgentProvider>;
+```
+
+The host uses the official MCP Apps bridge and renders the View through the
+specification's double-iframe sandbox. Without `mcpApps`, compatible results
+fall back to the normal structured tool-call UI. `McpApp` and
+`getMcpAppDescriptor` are also exported from
+`@codespring-app/use-agent/mcp-apps` for custom transcript implementations.
+
 ## CSS variables, Tailwind CSS, and StyleX
 
 Every default component resolves theme tokens through inherited

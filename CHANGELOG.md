@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Add an opt-in MCP Apps host built on the official AppBridge, with a required
+  cross-origin sandbox, bounded resource metadata, lifecycle cleanup, and
+  structured-result fallback.
+- Let `AgentChat` render compatible MCP tool results through the configured Apps
+  host while preserving custom tool renderers and the default tool UI.
+- Add server-filtered curated-skill catalogue queries, totals, and category
+  facets to the headless client.
+
 ## 0.11.1 — 2026-09-04
 
 - Correct the package-validation preview type so it matches the runtime payload;

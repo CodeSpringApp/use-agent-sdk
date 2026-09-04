@@ -29,6 +29,10 @@
       "types": "./dist/react.d.ts",
       "import": "./dist/react.js"
     },
+    "./mcp-apps": {
+      "types": "./dist/mcp-apps.d.ts",
+      "import": "./dist/mcp-apps.js"
+    },
     "./cli": {
       "types": "./dist/cli.d.ts",
       "import": "./dist/cli.js"
@@ -43,7 +47,7 @@
     "use-agent": "./dist/bin/use-agent.js"
   },
   "scripts": {
-    "build": "tsup src/index.ts src/react.tsx src/cli.ts src/node.ts src/bin/use-agent.ts --format esm --dts --clean --out-dir dist && chmod +x dist/bin/use-agent.js",
+    "build": "tsup src/index.ts src/react.tsx src/mcp-apps.tsx src/cli.ts src/node.ts src/bin/use-agent.ts --format esm --dts --clean --out-dir dist && chmod +x dist/bin/use-agent.js",
     "showcase": "vite examples/showcase --host 127.0.0.1",
     "showcase:build": "vite build examples/showcase --outDir ../../dist-showcase --emptyOutDir",
     "example:live": "bun run examples/live-session-replay.ts",
@@ -64,6 +68,8 @@
     }
   },
   "dependencies": {
+    "@modelcontextprotocol/ext-apps": "1.7.5",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "@shikijs/langs": "4.4.3",
     "@shikijs/themes": "4.4.3",
     "jose": "^6.2.10",

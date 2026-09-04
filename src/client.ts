@@ -40,6 +40,12 @@ import type {
   ManagedSkillStatus,
   CreateManagedSkillInput,
   SkillRevisionInput,
+  ManagedSkillPackagePreview,
+  ManagedSkillFile,
+  ManagedSkillFileContent,
+  ManagedSkillCatalogueSummary,
+  ManagedSkillCatalogueEntry,
+  InstallManagedSkillCatalogueInput,
 } from "./types";
 
 export class AgentError extends Error {
@@ -543,6 +549,16 @@ export class AgentClient {
       this.transport.request(`/v1/skills${pageQuery(options)}`, requestInit(options)),
     get: (skillId: string, options: RequestOptions = {}): Promise<ManagedSkill> =>
       this.transport.request(`/v1/skills/${encodeURIComponent(skillId)}`, requestInit(options)),
+    validate: (input: CreateManagedSkillInput, options: RequestOptions = {}): Promise<ManagedSkillPackagePreview> =>
+      this.transport.request("/v1/skills/validate", {
+        method: "POST",
+        body: JSON.stringify(withOperationId(input)),
+        ...requestInit(options),
+      }),
+    listFiles: (skillId: string, options: RequestOptions = {}): Promise<ManagedSkillFile[]> =>
+      this.transport.request(`/v1/skills/${encodeURIComponent(skillId)}/files`, requestInit(options)),
+    readFile: (skillId: string, path: string, options: RequestOptions = {}): Promise<ManagedSkillFileContent> =>
+      this.transport.request(`/v1/skills/${encodeURIComponent(skillId)}/file?path=${encodeURIComponent(path)}`, requestInit(options)),
     create: (input: CreateManagedSkillInput, options: RequestOptions = {}): Promise<ManagedSkill> =>
       this.transport.request("/v1/skills", {
         method: "POST",
@@ -559,6 +575,19 @@ export class AgentClient {
       this.transport.request(`/v1/skills/${encodeURIComponent(skillId)}/status`, {
         method: "POST",
         body: JSON.stringify({ operationId: randomIdempotencyKey(), status }),
+        ...requestInit(options),
+      }),
+  };
+
+  readonly skillCatalogue = {
+    list: (options: PageOptions = {}): Promise<Page<ManagedSkillCatalogueSummary>> =>
+      this.transport.request(`/v1/skill-catalogue${pageQuery(options)}`, requestInit(options)),
+    get: (catalogueId: string, options: RequestOptions = {}): Promise<ManagedSkillCatalogueEntry> =>
+      this.transport.request(`/v1/skill-catalogue/${encodeURIComponent(catalogueId)}`, requestInit(options)),
+    install: (catalogueId: string, input: InstallManagedSkillCatalogueInput = {}, options: RequestOptions = {}): Promise<ManagedSkill> =>
+      this.transport.request(`/v1/skill-catalogue/${encodeURIComponent(catalogueId)}/install`, {
+        method: "POST",
+        body: JSON.stringify(withOperationId(input)),
         ...requestInit(options),
       }),
   };

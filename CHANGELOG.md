@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.0 — 2026-09-04
+
+- Adopt Agent Skills packages with required `SKILL.md` and optional references,
+  assets, scripts, and arbitrary bounded resources.
+- Add package validation, file inspection, immutable revision metadata, and the
+  CodeSpring curated skill catalogue APIs.
+- Add `@codespring-app/use-agent/node` for symlink-safe directory packaging.
+- Clarify that hosted agents progressively load relevant skills and never execute
+  uploaded scripts.
+
 ## 0.10.0 — 2026-09-02
 
 - Add tenant-scoped MCP bearer and bounded custom-header credential lifecycle APIs.

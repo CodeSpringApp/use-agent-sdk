@@ -229,12 +229,10 @@ describe("public SDK", () => {
     });
     await client.mcpServers.refresh("catalog");
     await client.skills.create({
-      skillId: "support-style",
-      displayName: "Support style",
-      instructions: "Use concise answers.",
+      package: testSkillPackage("support-style", "Use concise answers."),
     });
     await client.skills.publish("support-style", {
-      instructions: "Use concise, empathetic answers.",
+      package: testSkillPackage("support-style", "Use concise, empathetic answers."),
       contextBudgetChars: 4096,
     });
 
@@ -372,6 +370,11 @@ function eventWithId(id: number) {
     createdAt: "2026-08-30T00:00:00.000Z",
     data: { delta: String(id) },
   };
+}
+
+function testSkillPackage(name: string, instructions: string) {
+  const value = `---\nname: ${name}\ndescription: Test skill package for ${name}.\n---\n\n${instructions}\n`;
+  return { files: [{ path: "SKILL.md", contentBase64: btoa(value), mediaType: "text/markdown" }] };
 }
 
 class FakeWebSocket implements AgentWebSocket {

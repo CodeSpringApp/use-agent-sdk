@@ -83,25 +83,33 @@ safe connection metadata is returned. Discovery is snapshotted, and publishing
 an agent pins the exact snapshot and source tools rather than trusting fresh
 discovery during a turn.
 
-Skills are versioned Markdown instructions. Publishing a new skill revision does
-not mutate existing agent versions:
+Skills follow the Agent Skills folder specification: a required `SKILL.md` plus
+optional references, assets, scripts, and other resources. Publishing a new
+package revision does not mutate existing agent versions. Hosted agents load
+instructions only when relevant; bundled scripts are portable but never executed.
 
 ```ts
+import { readSkillDirectory } from "@codespring-app/use-agent/node";
+
+const package = await readSkillDirectory("./skills/support-style");
+
 await agents.skills.create({
-  skillId: "support-style",
-  displayName: "Support style",
-  instructions: "Use concise, empathetic answers.",
+  package,
   contextBudgetChars: 4096,
 });
 
 await agents.skills.publish("support-style", {
-  instructions: "Use concise, empathetic answers and cite policy.",
+  package: await readSkillDirectory("./skills/support-style"),
   contextBudgetChars: 4096,
 });
+
+const curated = await agents.skillCatalogue.list({ limit: 25 });
+await agents.skillCatalogue.install(curated.items[0]!.catalogueId);
 ```
 
-All registry lists use opaque cursor pagination. Arbitrary uploaded code remains
-outside this release.
+The dashboard accepts a folder, ZIP, or pasted `SKILL.md`; the same strict
+validation, size limits, path checks, and immutable package digests apply to SDK
+uploads. All registry and catalogue lists use opaque cursor pagination.
 
 ## CLI and coding-agent skill
 

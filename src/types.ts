@@ -359,13 +359,39 @@ export interface CreateAuthenticatedManagedMcpServerInput
 }
 
 export type ManagedSkillStatus = "active" | "disabled";
+export type ManagedSkillFileKind = "instructions" | "reference" | "asset" | "script" | "other";
+export interface ManagedSkillPackageFileInput { path: string; contentBase64: string; mediaType?: string }
+export interface ManagedSkillPackageInput { files: ManagedSkillPackageFileInput[] }
+export interface ManagedSkillFile {
+  path: string;
+  kind: ManagedSkillFileKind;
+  mediaType: string;
+  digest: string;
+  bytes: number;
+  text: boolean;
+}
 export interface ManagedSkillRevision {
   revisionId: string;
   revisionNumber: number;
   skillId: string;
+  format: "agentskills.io/v1";
+  packageDigest: string;
+  packageBytes: number;
+  fileCount: number;
   instructionsDigest: string;
   instructionsBytes: number;
   contextBudgetChars: number;
+  name: string;
+  description: string;
+  license: string | null;
+  compatibility: string | null;
+  metadata: Record<string, string>;
+  allowedTools: string | null;
+  source: "tenant_upload" | "codespring_catalogue";
+  sourceId: string | null;
+  sourceVersion: string | null;
+  publisher: string | null;
+  diagnostics: string[];
   createdAt: string;
 }
 export interface ManagedSkillSummary {
@@ -379,21 +405,40 @@ export interface ManagedSkillSummary {
   updatedAt: string;
 }
 export interface ManagedSkill extends ManagedSkillSummary {
-  instructions: string;
+  skillMd: string;
+  files: ManagedSkillFile[];
 }
 export interface CreateManagedSkillInput {
   operationId?: string;
-  skillId: string;
-  displayName: string;
-  description?: string;
-  instructions: string;
+  package: ManagedSkillPackageInput;
   contextBudgetChars?: number;
 }
 export interface SkillRevisionInput {
   operationId?: string;
-  instructions: string;
+  package: ManagedSkillPackageInput;
   contextBudgetChars?: number;
 }
+export interface ManagedSkillPackagePreview extends Omit<ManagedSkillRevision, "revisionId" | "revisionNumber" | "skillId" | "instructionsDigest" | "instructionsBytes" | "contextBudgetChars" | "source" | "sourceId" | "sourceVersion" | "publisher" | "createdAt"> {
+  displayName: string;
+  files: ManagedSkillFile[];
+}
+export interface ManagedSkillFileContent { file: ManagedSkillFile; text: string | null; contentBase64: string | null }
+export interface ManagedSkillCatalogueSummary {
+  catalogueId: string;
+  version: string;
+  publisher: string;
+  category: string;
+  summary: string;
+  packageDigest: string;
+  name: string;
+  description: string;
+  license: string | null;
+  compatibility: string | null;
+  metadata: Record<string, string>;
+  allowedTools: string | null;
+}
+export interface ManagedSkillCatalogueEntry extends ManagedSkillCatalogueSummary { files: ManagedSkillFile[] }
+export interface InstallManagedSkillCatalogueInput { operationId?: string; version?: string; contextBudgetChars?: number }
 
 export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 

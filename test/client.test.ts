@@ -255,6 +255,60 @@ describe("public SDK", () => {
     });
   });
 
+  test("validates skill packages and accesses the curated catalogue", async () => {
+    const requests: Request[] = [];
+    const preview = {
+      format: "agentskills.io/v1" as const,
+      packageDigest: "a".repeat(64),
+      packageBytes: 128,
+      name: "support-style",
+      displayName: "Support Style",
+      description: "Keep support answers concise.",
+      license: null,
+      compatibility: null,
+      metadata: {},
+      allowedTools: null,
+      files: [],
+      diagnostics: [],
+    };
+    const client = createClient({
+      endpoint: "http://localhost:8787",
+      apiKey: "ua_test_secret",
+      fetch: async (input, init) => {
+        const request = new Request(input, init);
+        requests.push(request);
+        const path = new URL(request.url).pathname;
+        if (path === "/v1/skills/validate") return Response.json(preview);
+        if (path === "/v1/skills/support-style/files") return Response.json([]);
+        if (path === "/v1/skills/support-style/file") {
+          return Response.json({ file: null, text: "# Support style", contentBase64: null });
+        }
+        if (path === "/v1/skill-catalogue") return Response.json({ items: [], cursor: null, hasMore: false });
+        if (request.method === "GET") return Response.json({ catalogueId: "codespring/support-style" });
+        return Response.json({ skillId: "support-style" });
+      },
+    });
+
+    const validated = await client.skills.validate({ package: testSkillPackage("support-style", "Keep answers concise.") });
+    expect(validated.files.length).toBe(0);
+    await client.skills.listFiles("support-style");
+    await client.skills.readFile("support-style", "references/policy.md");
+    await client.skillCatalogue.list({ limit: 10 });
+    await client.skillCatalogue.get("codespring/support-style");
+    await client.skillCatalogue.install("codespring/support-style");
+
+    expect(requests.map((request) => `${request.method} ${new URL(request.url).pathname}`)).toEqual([
+      "POST /v1/skills/validate",
+      "GET /v1/skills/support-style/files",
+      "GET /v1/skills/support-style/file",
+      "GET /v1/skill-catalogue",
+      "GET /v1/skill-catalogue/codespring%2Fsupport-style",
+      "POST /v1/skill-catalogue/codespring%2Fsupport-style/install",
+    ]);
+    expect(new URL(requests[2]!.url).searchParams.get("path")).toBe("references/policy.md");
+    expect(await requests[5]!.json()).toMatchObject({ operationId: expect.any(String) });
+  });
+
   test("creates authenticated MCP servers and revokes orphaned credentials on failure", async () => {
     const requests: Request[] = [];
     let failServer = false;

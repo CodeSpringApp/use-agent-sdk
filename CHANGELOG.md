@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.1 — 2026-09-04
+
+- Correct the package-validation preview type so it matches the runtime payload;
+  callers can use `files.length` for the validated file count.
+
 ## 0.11.0 — 2026-09-04
 
 - Adopt Agent Skills packages with required `SKILL.md` and optional references,

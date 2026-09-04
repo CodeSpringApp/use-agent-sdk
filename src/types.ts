@@ -418,7 +418,7 @@ export interface SkillRevisionInput {
   package: ManagedSkillPackageInput;
   contextBudgetChars?: number;
 }
-export interface ManagedSkillPackagePreview extends Omit<ManagedSkillRevision, "revisionId" | "revisionNumber" | "skillId" | "instructionsDigest" | "instructionsBytes" | "contextBudgetChars" | "source" | "sourceId" | "sourceVersion" | "publisher" | "createdAt"> {
+export interface ManagedSkillPackagePreview extends Omit<ManagedSkillRevision, "revisionId" | "revisionNumber" | "skillId" | "fileCount" | "instructionsDigest" | "instructionsBytes" | "contextBudgetChars" | "source" | "sourceId" | "sourceVersion" | "publisher" | "createdAt"> {
   displayName: string;
   files: ManagedSkillFile[];
 }

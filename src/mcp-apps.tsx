@@ -1,5 +1,6 @@
 import {
   AppBridge,
+  buildAllowAttribute,
   McpUiResourceCspSchema,
   McpUiResourcePermissionsSchema,
   PostMessageTransport,
@@ -19,6 +20,7 @@ import {
   useRef,
   useState,
 } from "react";
+import type { AgentSession } from "./client";
 
 export interface McpAppDescriptor {
   resourceUri: `ui://${string}`;
@@ -97,6 +99,52 @@ export function createMcpAppsHost(options: CreateMcpAppsHostOptions): McpAppsHos
   });
 }
 
+export interface CreateSessionMcpAppsHostOptions
+  extends Omit<CreateMcpAppsHostOptions, "loadResource" | "callTool"> {
+  session: AgentSession;
+  allowAppToolCalls?: boolean;
+}
+
+/** Creates a host backed by the runtime's session-scoped MCP Apps boundary. */
+export function createSessionMcpAppsHost(
+  options: CreateSessionMcpAppsHostOptions,
+): McpAppsHost {
+  const { session, allowAppToolCalls = true, ...host } = options;
+  return createMcpAppsHost({
+    ...host,
+    async loadResource(context, signal) {
+      const target = requirePinnedDescriptor(context.descriptor);
+      const resource = await session.readMcpAppResource({
+        serverId: target.serverId,
+        snapshotId: target.snapshotId,
+        resourceUri: target.resourceUri,
+      }, { signal });
+      return {
+        html: resource.html,
+        ...(resource.csp ? { csp: resource.csp as McpUiResourceCsp } : {}),
+        ...(resource.permissions
+          ? { permissions: resource.permissions as McpUiResourcePermissions }
+          : {}),
+      };
+    },
+    ...(allowAppToolCalls ? {
+      callTool: async (context: McpAppToolContext, request: {
+        name: string;
+        arguments?: Record<string, unknown>;
+      }, signal: AbortSignal) => {
+        const target = requirePinnedDescriptor(context.descriptor);
+        return normalizeToolResult(await session.callMcpAppTool({
+          serverId: target.serverId,
+          snapshotId: target.snapshotId,
+          resourceUri: target.resourceUri,
+          toolName: request.name,
+          arguments: request.arguments ?? {},
+        }, { signal }));
+      },
+    } : {}),
+  });
+}
+
 export function getMcpAppDescriptor(output: unknown): McpAppDescriptor | null {
   if (!isRecord(output)) return null;
   const direct = isRecord(output.mcpApp) ? output.mcpApp : null;
@@ -128,6 +176,21 @@ export interface McpAppProps {
   errorFallback?: (error: Error, retry: () => void) => ReactNode;
 }
 
+export function createMcpAppSandboxUrl(
+  sandboxUrl: string,
+  hostOrigin: string,
+  resource: Pick<McpAppResource, "csp" | "permissions">,
+): string {
+  const url = new URL(sandboxUrl);
+  url.searchParams.set("hostOrigin", hostOrigin);
+  if (resource.csp) url.searchParams.set("csp", JSON.stringify(resource.csp));
+  if (resource.permissions) url.searchParams.set("permissions", JSON.stringify(resource.permissions));
+  if (url.toString().length > 16_384) {
+    throw new TypeError("MCP App sandbox policy is too large");
+  }
+  return url.toString();
+}
+
 export function McpApp({
   host,
   descriptor,
@@ -144,6 +207,8 @@ export function McpApp({
   const [ready, setReady] = useState(false);
   const [height, setHeight] = useState(320);
   const [error, setError] = useState<Error | null>(null);
+  const [resource, setResource] = useState<McpAppResource | null>(null);
+  const [sandboxDocumentUrl, setSandboxDocumentUrl] = useState<string | null>(null);
   const context = useMemo<McpAppToolContext>(() => ({
     descriptor,
     toolName,
@@ -152,13 +217,37 @@ export function McpApp({
   }), [descriptor, input, output, toolName]);
 
   useEffect(() => {
+    const abort = new AbortController();
+    let active = true;
+    setReady(false);
+    setError(null);
+    setResource(null);
+    setSandboxDocumentUrl(null);
+    void host.loadResource(context, abort.signal).then((loaded) => {
+      if (!active) return;
+      if (loaded.csp !== undefined) McpUiResourceCspSchema.parse(loaded.csp);
+      if (loaded.permissions !== undefined) McpUiResourcePermissionsSchema.parse(loaded.permissions);
+      if (typeof window === "undefined") throw new TypeError("MCP Apps require a browser host");
+      const sandboxUrl = createMcpAppSandboxUrl(host.sandboxUrl, window.location.origin, loaded);
+      setResource(loaded);
+      setSandboxDocumentUrl(sandboxUrl);
+    }).catch((reason) => {
+      if (active && !abort.signal.aborted) setError(normalizeError(reason));
+    });
+    return () => {
+      active = false;
+      abort.abort();
+    };
+  }, [context, host, loadKey]);
+
+  useEffect(() => {
+    if (!resource || !sandboxDocumentUrl) return;
     const element = iframe.current;
     const frameWindow = element?.contentWindow;
     if (!element || !frameWindow) return;
 
     const abort = new AbortController();
     let active = true;
-    let resource: McpAppResource | null = null;
     const bridge = new AppBridge(
       null,
       { name: host.hostName, version: host.hostVersion },
@@ -182,13 +271,10 @@ export function McpApp({
     bridge.addEventListener("sandboxready", () => {
       void (async () => {
         try {
-          resource ??= await host.loadResource(context, abort.signal);
           if (!active) return;
-          if (resource.csp !== undefined) McpUiResourceCspSchema.parse(resource.csp);
-          if (resource.permissions !== undefined) McpUiResourcePermissionsSchema.parse(resource.permissions);
           await bridge.sendSandboxResourceReady({
             html: resource.html,
-            sandbox: "allow-scripts allow-same-origin",
+            sandbox: "allow-scripts allow-same-origin allow-forms",
             ...(resource.csp ? { csp: resource.csp } : {}),
             ...(resource.permissions ? { permissions: resource.permissions } : {}),
           });
@@ -240,13 +326,14 @@ export function McpApp({
     void bridge.connect(new PostMessageTransport(frameWindow, frameWindow)).catch((reason) => {
       if (active && !abort.signal.aborted) setError(normalizeError(reason));
     });
+    element.src = sandboxDocumentUrl;
 
     return () => {
       active = false;
       abort.abort();
       void bridge.teardownResource({}, { timeout: 500 }).catch(() => undefined).finally(() => bridge.close());
     };
-  }, [context, host, loadKey, input, output]);
+  }, [context, host, input, output, resource, sandboxDocumentUrl]);
 
   if (error) {
     const retry = () => setLoadKey((value) => value + 1);
@@ -262,15 +349,15 @@ export function McpApp({
 
   return <div className={className} style={{ position: "relative", minHeight: ready ? undefined : 120, ...style }}>
     {!ready ? <div role="status" style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}>{loadingFallback}</div> : null}
-    <iframe
+    {resource && sandboxDocumentUrl ? <iframe
       key={loadKey}
       ref={iframe}
-      src={host.sandboxUrl}
       title={`${toolName} app`}
-      sandbox="allow-scripts allow-same-origin"
-      referrerPolicy="no-referrer"
+      sandbox="allow-scripts allow-same-origin allow-forms"
+      allow={buildAllowAttribute(resource.permissions)}
+      referrerPolicy="origin"
       style={{ width: "100%", height, border: 0, display: "block", visibility: ready ? "visible" : "hidden" }}
-    />
+    /> : null}
   </div>;
 }
 
@@ -282,6 +369,19 @@ function normalizeToolResult(output: unknown): McpAppToolResult {
     ...(isRecord(output.structuredContent) ? { structuredContent: output.structuredContent } : {}),
     ...(typeof output.isError === "boolean" ? { isError: output.isError } : {}),
     ...(isRecord(output._meta) ? { _meta: output._meta } : {}),
+  };
+}
+
+function requirePinnedDescriptor(descriptor: McpAppDescriptor): Required<
+  Pick<McpAppDescriptor, "resourceUri" | "serverId" | "snapshotId">
+> {
+  if (!descriptor.serverId || !descriptor.snapshotId) {
+    throw new TypeError("MCP App descriptor is missing its pinned server snapshot");
+  }
+  return {
+    resourceUri: descriptor.resourceUri,
+    serverId: descriptor.serverId,
+    snapshotId: descriptor.snapshotId,
   };
 }
 

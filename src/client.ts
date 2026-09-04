@@ -47,6 +47,13 @@ import type {
   InstallManagedSkillCatalogueInput,
   SkillCataloguePage,
   SkillCataloguePageOptions,
+  BeginManagedMcpOAuthInput,
+  BeginManagedMcpOAuthResult,
+  CompleteManagedMcpOAuthInput,
+  CompleteManagedMcpOAuthResult,
+  ManagedMcpAppResource,
+  ReadManagedMcpAppResourceInput,
+  CallManagedMcpAppToolInput,
 } from "./types";
 
 export class AgentError extends Error {
@@ -358,6 +365,38 @@ export class AgentSession {
   connect(options: AgentConnectionOptions): Promise<AgentConnection> {
     return this.transport.connectSession(this.id, options);
   }
+
+  readMcpAppResource(
+    input: ReadManagedMcpAppResourceInput,
+    options: RequestOptions = {},
+  ): Promise<ManagedMcpAppResource> {
+    return this.transport.request(
+      `/v1/sessions/${encodeURIComponent(this.id)}/mcp-apps/resources/read`,
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+        ...requestInit(options),
+      },
+    );
+  }
+
+  callMcpAppTool(
+    input: CallManagedMcpAppToolInput,
+    options: RequestOptions = {},
+  ): Promise<unknown> {
+    return this.transport.request(
+      `/v1/sessions/${encodeURIComponent(this.id)}/mcp-apps/tools/call`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...input,
+          operationId: input.operationId ?? randomIdempotencyKey(),
+          arguments: input.arguments ?? {},
+        }),
+        ...requestInit(options),
+      },
+    );
+  }
 }
 
 export interface TurnStatusResponse {
@@ -541,6 +580,34 @@ export class AgentClient {
       this.transport.request(`/v1/mcp-servers/${encodeURIComponent(serverId)}/status`, {
         method: "POST",
         body: JSON.stringify({ operationId: randomIdempotencyKey(), status }),
+        ...requestInit(options),
+      }),
+    beginOAuth: (
+      serverId: string,
+      input: BeginManagedMcpOAuthInput = {},
+      options: RequestOptions = {},
+    ): Promise<BeginManagedMcpOAuthResult> =>
+      this.transport.request(`/v1/mcp-servers/${encodeURIComponent(serverId)}/oauth/begin`, {
+        method: "POST",
+        body: JSON.stringify(withOperationId({ scopes: [], ...input })),
+        ...requestInit(options),
+      }),
+    completeOAuth: (
+      input: CompleteManagedMcpOAuthInput,
+      options: RequestOptions = {},
+    ): Promise<CompleteManagedMcpOAuthResult> =>
+      this.transport.request("/v1/mcp-oauth/complete", {
+        method: "POST",
+        body: JSON.stringify(input),
+        ...requestInit(options),
+      }),
+    disconnectOAuth: (
+      connectionId: string,
+      options: RequestOptions = {},
+    ): Promise<ManagedMcpAuthConnection> =>
+      this.transport.request(`/v1/mcp-auth-connections/${encodeURIComponent(connectionId)}/oauth/disconnect`, {
+        method: "POST",
+        body: JSON.stringify({ operationId: randomIdempotencyKey() }),
         ...requestInit(options),
       }),
   };

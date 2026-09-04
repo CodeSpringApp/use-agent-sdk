@@ -1,6 +1,6 @@
 {
   "name": "@codespring-app/use-agent",
-  "version": "0.11.1",
+  "version": "0.12.0",
   "description": "Server and React SDKs for the CodeSpring Agents runtime",
   "license": "UNLICENSED",
   "repository": {

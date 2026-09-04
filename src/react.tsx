@@ -2648,11 +2648,13 @@ export function AgentChat({
 export { createBrowserClient } from "./client";
 export {
   createMcpAppsHost,
+  createSessionMcpAppsHost,
   getMcpAppDescriptor,
   McpApp,
 } from "./mcp-apps";
 export type {
   CreateMcpAppsHostOptions,
+  CreateSessionMcpAppsHostOptions,
   McpAppDescriptor,
   McpAppProps,
   McpAppResource,

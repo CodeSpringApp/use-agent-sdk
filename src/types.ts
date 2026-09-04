@@ -279,13 +279,24 @@ export interface CreateManagedToolInput {
   initialRevision: Omit<ToolRevisionInput, "operationId">;
 }
 
-export type ManagedMcpServerStatus = "active" | "disabled" | "error";
-export type ManagedMcpAuthMode = "none" | "bearer" | "header";
+export type ManagedMcpServerStatus =
+  | "authorization_required"
+  | "authorizing"
+  | "active"
+  | "scope_required"
+  | "disabled"
+  | "error";
+export type ManagedMcpAuthMode = "none" | "oauth" | "bearer" | "header";
 export type ManagedMcpAuthConnectionStatus =
+  | "discovering"
+  | "authorization_required"
+  | "authorizing"
   | "pending_validation"
   | "active"
+  | "scope_required"
   | "invalid"
-  | "revoked";
+  | "revoked"
+  | "error";
 export interface ManagedMcpAuthConnection {
   connectionId: string;
   label: string;
@@ -297,6 +308,9 @@ export interface ManagedMcpAuthConnection {
   updatedAt: string;
   lastValidatedAt: string | null;
   lastUsedAt: string | null;
+  issuer: string | null;
+  grantedScopes: string[];
+  accessTokenExpiresAt: string | null;
 }
 export interface CreateManagedMcpAuthConnectionInput {
   operationId?: string;
@@ -315,6 +329,10 @@ export interface ManagedMcpTool {
   modelName: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  app: {
+    resourceUri: `ui://${string}`;
+    visibility: Array<"model" | "app">;
+  } | null;
 }
 export interface ManagedMcpSnapshot {
   snapshotId: string;
@@ -352,10 +370,57 @@ export interface CreateAuthenticatedManagedMcpServerInput
   extends Omit<CreateManagedMcpServerInput, "authMode" | "authConnectionId"> {
   authentication: {
     label?: string;
-    mode: Exclude<ManagedMcpAuthMode, "none">;
+    mode: "bearer" | "header";
     headerName?: string | null;
     secret: string;
   };
+}
+
+export interface BeginManagedMcpOAuthInput {
+  operationId?: string;
+  scopes?: string[];
+}
+export interface BeginManagedMcpOAuthResult {
+  serverId: string;
+  connection: ManagedMcpAuthConnection;
+  transactionId: string;
+  authorizationUrl: string;
+  state: string;
+  expiresAt: string;
+}
+export interface CompleteManagedMcpOAuthInput {
+  transactionId: string;
+  code: string;
+  state: string;
+  issuer?: string;
+}
+export interface CompleteManagedMcpOAuthResult {
+  serverId: string;
+  connection: ManagedMcpAuthConnection;
+  server: ManagedMcpServer;
+}
+export interface ManagedMcpAppResource {
+  serverId: string;
+  snapshotId: string;
+  resourceUri: `ui://${string}`;
+  resourceDigest: string;
+  mediaType: "text/html;profile=mcp-app";
+  html: string;
+  csp: Record<string, unknown> | null;
+  permissions: Record<string, unknown> | null;
+}
+export interface ReadManagedMcpAppResourceInput {
+  serverId: string;
+  snapshotId: string;
+  resourceUri: `ui://${string}`;
+}
+export interface CallManagedMcpAppToolInput {
+  serverId: string;
+  snapshotId: string;
+  resourceUri: `ui://${string}`;
+  toolName: string;
+  arguments?: Record<string, unknown>;
+  operationId?: string;
 }
 
 export type ManagedSkillStatus = "active" | "disabled";

@@ -77,11 +77,34 @@ const draft = await agents.agents.create({
 });
 ```
 
-MCP endpoints may be public, use a bearer token, or use one bounded custom
-header. Credential values are write-only and encrypted by the runtime; only
-safe connection metadata is returned. Discovery is snapshotted, and publishing
-an agent pins the exact snapshot and source tools rather than trusting fresh
-discovery during a turn.
+MCP endpoints may be public, use OAuth 2.1, a bearer token, or one bounded
+custom header. Credential values are write-only and encrypted by the runtime;
+only safe connection metadata is returned. Discovery is snapshotted, and
+publishing an agent pins the exact snapshot and source tools rather than
+trusting fresh discovery during a turn.
+
+OAuth connections use authorization-server discovery and PKCE. Create the
+server first, redirect the user to the returned authorization URL, and complete
+the callback on your server route:
+
+```ts
+await agents.mcpServers.create({
+  serverId: "private-catalog",
+  displayName: "Private product catalog",
+  endpoint: "https://mcp.example.com/mcp",
+  authMode: "oauth",
+});
+
+const authorization = await agents.mcpServers.beginOAuth("private-catalog");
+// Redirect the browser to authorization.authorizationUrl.
+
+await agents.mcpServers.completeOAuth({
+  transactionId: callback.transactionId,
+  code: callback.code,
+  state: callback.state,
+  ...(callback.issuer ? { issuer: callback.issuer } : {}),
+});
+```
 
 Skills follow the Agent Skills folder specification: a required `SKILL.md` plus
 optional references, assets, scripts, and other resources. Publishing a new
@@ -428,15 +451,13 @@ callbacks. App HTML never enters your React tree or main document.
 import {
   AgentChat,
   AgentProvider,
-  createMcpAppsHost,
+  createSessionMcpAppsHost,
 } from "@codespring-app/use-agent/react";
 
-const mcpApps = createMcpAppsHost({
-  sandboxUrl: "https://mcp-apps-sandbox.example.com/",
-  loadResource: (context, signal) =>
-    api.mcpApps.readResource(context.descriptor, { signal }),
-  callTool: (context, request, signal) =>
-    api.mcpApps.callTool(context.descriptor, request, { signal }),
+const session = agentClient.sessions.get(sessionId);
+const mcpApps = createSessionMcpAppsHost({
+  session,
+  sandboxUrl: "https://your-dedicated-sandbox.example.com/",
   openLink: async (_context, url) => confirm(`Open ${url}?`),
 });
 

@@ -2,11 +2,20 @@
 
 ## Unreleased
 
+## 0.12.0 — 2026-09-05
+
 - Add an opt-in MCP Apps host built on the official AppBridge, with a required
   cross-origin sandbox, bounded resource metadata, lifecycle cleanup, and
   structured-result fallback.
+- Add a session-bound MCP Apps host that reads UI resources and invokes
+  app-visible tools only through the immutable server snapshot pinned to the
+  running agent version.
+- Bind sandbox navigation to the embedding origin and transmit CSP and browser
+  permission declarations before the isolated proxy loads.
 - Let `AgentChat` render compatible MCP tool results through the configured Apps
   host while preserving custom tool renderers and the default tool UI.
+- Add OAuth 2.1 connection lifecycle APIs for remote MCP servers, including
+  discovery, PKCE authorization completion, refresh, and disconnect metadata.
 - Add server-filtered curated-skill catalogue queries, totals, and category
   facets to the headless client.
 

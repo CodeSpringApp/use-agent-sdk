@@ -36,6 +36,55 @@ immutable policy revision while credential rotation remains independent.
 
 API keys are server-only. Do not pass the server client into a browser bundle.
 
+### Realtime voice and phone calls
+
+Every agent session can open a durable realtime voice connection. The same
+session transcript, tools, approvals, and generated UI remain available whether
+the caller speaks or types. Audio input is mono PCM16 at 16 kHz; the runtime
+handles endpointing, interruption, transcription, agent execution, and streamed
+speech output.
+
+```ts
+const call = await session.connectVoice({
+  onTranscript: ({ text, final }) => final && console.log(text),
+  onAudio: (audio) => playAudio(audio),
+});
+
+call.sendAudio(pcm16Frame);
+call.sendText("Check the CRM before answering");
+call.endpoint(); // Optional manual endpoint; silence detection is automatic.
+```
+
+For managed inbound phone calls, connect a customer-owned Twilio account in the
+Agents dashboard, sync its numbers, and attach one number to a published agent
+and voice profile. CodeSpring validates and encrypts the write-only credential,
+configures the inbound webhook, verifies Twilio signatures, and maps each call
+to a normal durable session. Model, transcription, and speech generation remain
+BYOK; carrier minutes stay on the customer's Twilio account.
+
+Customers who manage telephony themselves can bridge any carrier through the
+provider-neutral server adapter. The package includes a Twilio Media Streams
+adapter; webhook admission and carrier credential verification stay in the
+customer's server boundary.
+
+```ts
+import { bridgeTelephonyCall } from "@codespring-app/use-agent/telephony";
+import { createTwilioMediaAdapter } from "@codespring-app/use-agent/telephony/twilio";
+
+const bridge = await bridgeTelephonyCall(
+  session,
+  createTwilioMediaAdapter(twilioWebSocket, { expectedCallSid }),
+  { clientCallId: crypto.randomUUID() },
+);
+
+// Later, after the carrier disconnects:
+bridge.end("carrier_ended");
+```
+
+The generic `TelephonyMediaAdapter` contract can be implemented for Telnyx,
+SIP gateways, or an existing contact-center media layer without giving
+CodeSpring the carrier credential.
+
 The same client exposes cursor-paginated control-plane reads and idempotent
 mutations when its API key carries the corresponding scope:
 

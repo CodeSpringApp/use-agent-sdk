@@ -74,7 +74,7 @@ export interface AgentWebSocket {
     type: K,
     listener: (event: AgentWebSocketEventMap[K]) => void,
   ): void;
-  send(data: string): void;
+  send(data: string | ArrayBuffer | ArrayBufferView | Blob): void;
   close(code?: number, reason?: string): void;
 }
 
@@ -91,6 +91,89 @@ export interface AgentConnectionOptions {
 
 export interface AgentConnection {
   readonly cursor: number;
+  close(code?: number, reason?: string): void;
+}
+
+export type VoiceCallTransport = "browser_pcm" | "sdk_bridge";
+export type VoiceCallState =
+  | "created"
+  | "connecting"
+  | "listening"
+  | "transcribing"
+  | "thinking"
+  | "speaking"
+  | "ended"
+  | "failed";
+
+export interface VoiceMediaConfiguration {
+  encoding: "pcm_s16le" | "mulaw";
+  sampleRateHz: 8_000 | 16_000 | 24_000;
+  channels: 1;
+  frameDurationMs: 10 | 20 | 40;
+}
+
+export interface VoiceEndpointingOptions {
+  silenceDurationMs?: number;
+  minimumSpeechMs?: number;
+  maximumUtteranceMs?: number;
+  speechThreshold?: number;
+}
+
+export type VoiceCallServerMessage =
+  | { type: "ready"; callId: string; sessionId: string; media: VoiceMediaConfiguration }
+  | { type: "state"; state: VoiceCallState; sequence: number }
+  | { type: "transcript"; utteranceId: string; text: string; final: boolean }
+  | { type: "turn"; turnId: string; status: TurnStatus }
+  | {
+      type: "speech.start";
+      speechGenerationId: string;
+      clauseIndex: number;
+      contentType: string;
+    }
+  | {
+      type: "speech.end";
+      speechGenerationId: string;
+      clauseIndex: number;
+      interrupted: boolean;
+    }
+  | { type: "error"; code: string; message: string; retryable: boolean };
+
+export interface VoiceCallConnectionOptions {
+  transport?: VoiceCallTransport;
+  clientCallId?: string;
+  endpointing?: VoiceEndpointingOptions;
+  /** Request a carrier-friendly speech payload. `pcm` is raw signed 24 kHz PCM16. */
+  speechOutputFormat?: "mp3" | "wav" | "pcm";
+  signal?: AbortSignal;
+  onReady?: (media: VoiceMediaConfiguration) => void;
+  onState?: (state: VoiceCallState, sequence: number) => void;
+  onTranscript?: (input: { utteranceId: string; text: string; final: boolean }) => void;
+  onTurn?: (input: { turnId: string; status: TurnStatus }) => void;
+  onSpeechStart?: (input: {
+    speechGenerationId: string;
+    clauseIndex: number;
+    contentType: string;
+  }) => void;
+  onAudio?: (audio: ArrayBuffer) => void;
+  onSpeechEnd?: (input: {
+    speechGenerationId: string;
+    clauseIndex: number;
+    interrupted: boolean;
+  }) => void;
+  onError?: (error: Error) => void;
+  onClose?: (event: CloseEvent) => void;
+}
+
+export interface VoiceCallConnection {
+  readonly callId: string;
+  readonly sessionId: string;
+  readonly media: VoiceMediaConfiguration;
+  readonly state: VoiceCallState;
+  sendAudio(frame: ArrayBuffer | ArrayBufferView): void;
+  sendText(content: string, clientTurnId?: string): void;
+  endpoint(utteranceId?: string): void;
+  interrupt(): void;
+  end(reason?: string): void;
   close(code?: number, reason?: string): void;
 }
 
@@ -520,6 +603,8 @@ export interface AgentClientOptions {
   endpoint: string;
   apiKey: string;
   fetch?: FetchLike;
+  /** Injectable for server runtimes that do not provide a global WebSocket. */
+  webSocket?: AgentWebSocketFactory;
 }
 
 export interface BrowserAgentClientOptions {

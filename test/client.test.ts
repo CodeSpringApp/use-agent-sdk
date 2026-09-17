@@ -414,6 +414,46 @@ describe("public SDK", () => {
     expect(replayCursors).toEqual([6]);
     expect(connection.cursor).toBe(6);
   });
+
+  test("keeps typed turns on the durable voice connection", async () => {
+    let socket: FakeWebSocket | undefined;
+    const client = createClient({
+      endpoint: "http://localhost:8787/browser",
+      apiKey: "ua_test_secret",
+      fetch: async () => Response.json({
+        callId: "00000000-0000-4000-8000-000000000121",
+        sessionId: "session-1",
+        state: "created",
+        transport: "sdk_bridge",
+        media: {
+          encoding: "pcm_s16le",
+          sampleRateHz: 16_000,
+          channels: 1,
+          frameDurationMs: 20,
+        },
+        ticket: "voice-ticket",
+        expiresAt: new Date(Date.now() + 30_000).toISOString(),
+        connectPath: "/browser/v1/voice-calls/call-1/connect",
+      }, { status: 201 }),
+      webSocket: (url) => {
+        socket = new FakeWebSocket(url);
+        queueMicrotask(() => socket?.open());
+        return socket;
+      },
+    });
+
+    const call = await client.sessions.get("session-1").connectVoice({ transport: "sdk_bridge" });
+    call.sendText("Use the CRM tool", "00000000-0000-4000-8000-000000000122");
+
+    expect(socket?.sent).toEqual([
+      JSON.stringify({ type: "ready" }),
+      JSON.stringify({
+        type: "text",
+        content: "Use the CRM tool",
+        clientTurnId: "00000000-0000-4000-8000-000000000122",
+      }),
+    ]);
+  });
 });
 
 function eventWithId(id: number) {

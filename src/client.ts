@@ -54,6 +54,11 @@ import type {
   ManagedMcpAppResource,
   ReadManagedMcpAppResourceInput,
   CallManagedMcpAppToolInput,
+  VoiceCallConnection,
+  VoiceCallConnectionOptions,
+  VoiceCallServerMessage,
+  VoiceCallState,
+  VoiceMediaConfiguration,
 } from "./types";
 
 export class AgentError extends Error {
@@ -216,6 +221,134 @@ class Transport {
     });
   }
 
+  async connectVoiceCall(
+    sessionId: string,
+    options: VoiceCallConnectionOptions = {},
+  ): Promise<VoiceCallConnection> {
+    const issued = await this.request<{
+      callId: string;
+      sessionId: string;
+      state: VoiceCallState;
+      transport: "browser_pcm" | "sdk_bridge";
+      media: VoiceMediaConfiguration;
+      ticket: string;
+      expiresAt: string;
+      connectPath: string;
+    }>(`/v1/sessions/${encodeURIComponent(sessionId)}/voice-calls`, {
+      method: "POST",
+      body: JSON.stringify({
+        transport: options.transport ?? (this.options.browser ? "browser_pcm" : "sdk_bridge"),
+        ...(options.clientCallId ? { clientCallId: options.clientCallId } : {}),
+        ...(options.endpointing ? { endpointing: options.endpointing } : {}),
+        ...(options.speechOutputFormat ? { speechOutputFormat: options.speechOutputFormat } : {}),
+      }),
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    });
+    const runtimeOrigin = new URL(this.endpoint).origin;
+    const socketUrl = new URL(issued.connectPath, runtimeOrigin);
+    socketUrl.protocol = socketUrl.protocol === "https:" ? "wss:" : "ws:";
+    socketUrl.searchParams.set("ticket", issued.ticket);
+    const createSocket = this.options.webSocket ?? defaultWebSocketFactory;
+    const socket = createSocket(socketUrl.toString());
+    let state = issued.state;
+    let opened = false;
+    let settled = false;
+
+    return new Promise<VoiceCallConnection>((resolve, reject) => {
+      const sendControl = (message: Record<string, unknown>) => {
+        if (socket.readyState !== 1) {
+          throw new AgentError("Voice media socket is not open", 0, "voice_socket_not_open");
+        }
+        socket.send(JSON.stringify(message));
+      };
+      const connection: VoiceCallConnection = {
+        callId: issued.callId,
+        sessionId: issued.sessionId,
+        media: issued.media,
+        get state() {
+          return state;
+        },
+        sendAudio: (frame) => {
+          if (socket.readyState !== 1) {
+            throw new AgentError("Voice media socket is not open", 0, "voice_socket_not_open");
+          }
+          if (frame instanceof ArrayBuffer) socket.send(frame);
+          else socket.send(new Uint8Array(frame.buffer, frame.byteOffset, frame.byteLength));
+        },
+        sendText: (content, clientTurnId) => sendControl({
+          type: "text",
+          content,
+          ...(clientTurnId ? { clientTurnId } : {}),
+        }),
+        endpoint: (utteranceId) => sendControl({
+          type: "endpoint",
+          ...(utteranceId ? { utteranceId } : {}),
+        }),
+        interrupt: () => sendControl({ type: "interrupt" }),
+        end: (reason) => sendControl({ type: "end", ...(reason ? { reason } : {}) }),
+        close: (code = 1000, reason = "client closed") => socket.close(code, reason),
+      };
+      const failBeforeOpen = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        reject(error);
+      };
+      socket.addEventListener("open", () => {
+        opened = true;
+        socket.send(JSON.stringify({ type: "ready" }));
+        if (settled) return;
+        settled = true;
+        resolve(connection);
+      });
+      socket.addEventListener("message", (event) => {
+        if (event.data instanceof ArrayBuffer) {
+          options.onAudio?.(event.data);
+          return;
+        }
+        if (typeof Blob !== "undefined" && event.data instanceof Blob) {
+          void event.data.arrayBuffer().then((audio) => options.onAudio?.(audio));
+          return;
+        }
+        try {
+          const message = parseVoiceCallServerMessage(event.data);
+          if (message.type === "ready") options.onReady?.(message.media);
+          if (message.type === "state") {
+            state = message.state;
+            options.onState?.(message.state, message.sequence);
+          }
+          if (message.type === "transcript") options.onTranscript?.(message);
+          if (message.type === "turn") options.onTurn?.(message);
+          if (message.type === "speech.start") options.onSpeechStart?.(message);
+          if (message.type === "speech.end") options.onSpeechEnd?.(message);
+          if (message.type === "error") {
+            options.onError?.(new AgentError(message.message, 0, message.code));
+          }
+        } catch (error) {
+          const normalized = error instanceof Error ? error : new Error(String(error));
+          options.onError?.(normalized);
+          socket.close(1008, "invalid voice message");
+          if (!opened) failBeforeOpen(normalized);
+        }
+      });
+      socket.addEventListener("error", () => {
+        const error = new AgentError("Voice WebSocket connection failed", 0, "voice_websocket_failed");
+        options.onError?.(error);
+        if (!opened) failBeforeOpen(error);
+      });
+      socket.addEventListener("close", (event) => {
+        options.onClose?.(event);
+        if (!opened) failBeforeOpen(
+          new AgentError("Voice WebSocket closed before connecting", 0, "voice_websocket_closed"),
+        );
+      });
+      if (options.signal) {
+        const closeForAbort = () => socket.close(1000, "request aborted");
+        if (options.signal.aborted) closeForAbort();
+        else options.signal.addEventListener("abort", closeForAbort, { once: true });
+      }
+    });
+  }
+
   private async fetchWithToken(path: string, init: RequestInit): Promise<Response> {
     const headers = new Headers(init.headers);
     headers.set("Accept", "application/json");
@@ -364,6 +497,10 @@ export class AgentSession {
 
   connect(options: AgentConnectionOptions): Promise<AgentConnection> {
     return this.transport.connectSession(this.id, options);
+  }
+
+  connectVoice(options: VoiceCallConnectionOptions = {}): Promise<VoiceCallConnection> {
+    return this.transport.connectVoiceCall(this.id, options);
   }
 
   readMcpAppResource(
@@ -696,6 +833,7 @@ export function createClient(options: AgentClientOptions): AgentClient {
       token: staticTokenProvider(options.apiKey),
       browser: false,
       ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+      ...(options.webSocket === undefined ? {} : { webSocket: options.webSocket }),
     }),
   );
 }
@@ -753,6 +891,70 @@ function parseWebSocketServerMessage(value: unknown): WebSocketServerMessage {
     return { type: "error", code: parsed.code, message: parsed.message };
   }
   throw new TypeError("WebSocket message is invalid");
+}
+
+function parseVoiceCallServerMessage(value: unknown): VoiceCallServerMessage {
+  if (typeof value !== "string") throw new TypeError("Voice WebSocket message must be JSON text");
+  const parsed: unknown = JSON.parse(value);
+  if (!isObject(parsed) || typeof parsed.type !== "string") {
+    throw new TypeError("Voice WebSocket message is invalid");
+  }
+  if (
+    parsed.type === "ready" &&
+    typeof parsed.callId === "string" &&
+    typeof parsed.sessionId === "string" &&
+    isVoiceMediaConfiguration(parsed.media)
+  ) return parsed as unknown as VoiceCallServerMessage;
+  if (
+    parsed.type === "state" &&
+    isVoiceCallState(parsed.state) &&
+    Number.isSafeInteger(parsed.sequence)
+  ) return parsed as unknown as VoiceCallServerMessage;
+  if (
+    parsed.type === "transcript" &&
+    typeof parsed.utteranceId === "string" &&
+    typeof parsed.text === "string" &&
+    typeof parsed.final === "boolean"
+  ) return parsed as unknown as VoiceCallServerMessage;
+  if (
+    parsed.type === "turn" &&
+    typeof parsed.turnId === "string" &&
+    ["queued", "running", "completed", "failed", "cancelled"].includes(String(parsed.status))
+  ) return parsed as unknown as VoiceCallServerMessage;
+  if (
+    parsed.type === "speech.start" &&
+    typeof parsed.speechGenerationId === "string" &&
+    Number.isSafeInteger(parsed.clauseIndex) &&
+    typeof parsed.contentType === "string"
+  ) return parsed as unknown as VoiceCallServerMessage;
+  if (
+    parsed.type === "speech.end" &&
+    typeof parsed.speechGenerationId === "string" &&
+    Number.isSafeInteger(parsed.clauseIndex) &&
+    typeof parsed.interrupted === "boolean"
+  ) return parsed as unknown as VoiceCallServerMessage;
+  if (
+    parsed.type === "error" &&
+    typeof parsed.code === "string" &&
+    typeof parsed.message === "string" &&
+    typeof parsed.retryable === "boolean"
+  ) return parsed as unknown as VoiceCallServerMessage;
+  throw new TypeError("Voice WebSocket message is invalid");
+}
+
+function isVoiceMediaConfiguration(value: unknown): value is VoiceMediaConfiguration {
+  return isObject(value) &&
+    (value.encoding === "pcm_s16le" || value.encoding === "mulaw") &&
+    [8_000, 16_000, 24_000].includes(Number(value.sampleRateHz)) &&
+    value.channels === 1 &&
+    [10, 20, 40].includes(Number(value.frameDurationMs));
+}
+
+function isVoiceCallState(value: unknown): value is VoiceCallState {
+  return [
+    "created", "connecting", "listening", "transcribing", "thinking",
+    "speaking", "ended", "failed",
+  ].includes(String(value));
 }
 
 function isAgentEvent(value: unknown): value is AgentEvent {

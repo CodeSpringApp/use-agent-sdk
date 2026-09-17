@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add durable realtime voice calls with automatic endpointing, interruption,
+  typed turns on the live call, and streamed speech events.
+- Add a provider-neutral telephony bridge and a first-party Twilio bidirectional
+  Media Streams adapter with PCM16/μ-law conversion and playback clearing.
+- Export dedicated `telephony` and `telephony/twilio` server entrypoints.
+
 ## 0.12.0 — 2026-09-05
 
 - Add an opt-in MCP Apps host built on the official AppBridge, with a required

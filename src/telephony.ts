@@ -7,6 +7,7 @@ export interface TelephonyMediaAdapter {
     onAudio: (pcm16k: ArrayBuffer) => void;
     onEndpoint?: () => void;
     onInterrupt?: () => void;
+    onDtmf?: (digit: string) => void;
     onEnd: (reason?: string) => void;
     onError: (error: Error) => void;
   }): void | (() => void);
@@ -75,6 +76,7 @@ export async function bridgeTelephonyCall(
     onAudio: (audio) => call.sendAudio(audio),
     onEndpoint: () => call.endpoint(),
     onInterrupt: () => call.interrupt(),
+    onDtmf: (digit) => call.sendText(`The caller pressed ${digit} on the phone keypad.`),
     onEnd: finish,
     onError: (error) => {
       options.onError?.(error);

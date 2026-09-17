@@ -34,6 +34,8 @@ export function createTwilioMediaAdapter(
             event?: unknown;
             start?: { streamSid?: unknown; callSid?: unknown };
             media?: { payload?: unknown };
+            dtmf?: { digit?: unknown };
+            mark?: { name?: unknown };
           };
           if (value.event === "start") {
             if (
@@ -43,6 +45,8 @@ export function createTwilioMediaAdapter(
             streamSid = value.start.streamSid;
           } else if (value.event === "media" && typeof value.media?.payload === "string") {
             handlers.onAudio(upsampleMulaw8kToPcm16(decodeBase64(value.media.payload)).buffer as ArrayBuffer);
+          } else if (value.event === "dtmf" && typeof value.dtmf?.digit === "string" && /^[0-9*#]$/u.test(value.dtmf.digit)) {
+            handlers.onDtmf?.(value.dtmf.digit);
           } else if (value.event === "stop") {
             handlers.onEnd("twilio_stopped");
           }
@@ -63,10 +67,18 @@ export function createTwilioMediaAdapter(
     },
     sendSpeech(pcm24k) {
       if (!streamSid) throw new Error("Twilio media stream has not started");
+      const mulaw = pcm24kToMulaw8k(new Uint8Array(pcm24k));
+      for (let offset = 0; offset < mulaw.byteLength; offset += 160) {
+        socket.send(JSON.stringify({
+          event: "media",
+          streamSid,
+          media: { payload: encodeBase64(mulaw.subarray(offset, Math.min(offset + 160, mulaw.byteLength))) },
+        }));
+      }
       socket.send(JSON.stringify({
-        event: "media",
+        event: "mark",
         streamSid,
-        media: { payload: encodeBase64(pcm24kToMulaw8k(new Uint8Array(pcm24k))) },
+        mark: { name: `speech-${crypto.randomUUID()}` },
       }));
     },
     clearSpeech() {

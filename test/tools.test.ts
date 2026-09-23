@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { exportJWK, generateKeyPair, SignJWT, type CryptoKey } from "jose";
 import {
+  CustomerToolError,
   createMemoryToolExecutionStore,
   createToolHandler,
   defineTool,
@@ -61,6 +62,65 @@ describe("customer-hosted tools", () => {
     expect(calls).toBe(1);
   });
 
+  it("rechecks authorization before replaying a completed operation", async () => {
+    const signing = await signingFixture();
+    let allowed = true;
+    let authorizations = 0;
+    let executions = 0;
+    const tool = defineTool<{ customerId: string }, string>({
+      name: "lookup_customer",
+      revision: "2026-08-30.1",
+      description: "Look up a customer by ID.",
+      inputSchema: {
+        type: "object",
+        properties: { customerId: { type: "string" } },
+        required: ["customerId"],
+        additionalProperties: false,
+      },
+      execute() {
+        executions += 1;
+        return "Ada";
+      },
+    });
+    const handler = createToolHandler({
+      endpoint,
+      issuer,
+      jwks: signing.jwks,
+      tools: [tool],
+      executionStore: createMemoryToolExecutionStore(),
+      authorize(context) {
+        authorizations += 1;
+        expect(context.sessionId).toBe("00000000-0000-4000-8000-000000000001");
+        expect(context.externalUserId).toBe("customer-user-1");
+        if (!allowed) throw new CustomerToolError("project_access_denied", "Project access is unavailable");
+      },
+    });
+    const invocation = {
+      ...fixtureInvocation(),
+      sessionId: "00000000-0000-4000-8000-000000000001",
+      externalUserId: "customer-user-1",
+    };
+
+    const first = await handler(await signedRequest(signing.privateKey, invocation));
+    expect(await first.json()).toMatchObject({ ok: true, output: "Ada" });
+    allowed = false;
+    const deniedReplay = await handler(await signedRequest(signing.privateKey, invocation));
+    expect(deniedReplay.status).toBe(200);
+    expect(await deniedReplay.json()).toEqual({
+      ok: false,
+      operationId: invocation.operationId,
+      error: { code: "project_access_denied", message: "Project access is unavailable", retryable: false },
+    });
+    expect(authorizations).toBe(2);
+    expect(executions).toBe(1);
+
+    allowed = true;
+    const permittedReplay = await handler(await signedRequest(signing.privateKey, invocation));
+    expect(await permittedReplay.json()).toMatchObject({ ok: true, output: "Ada" });
+    expect(authorizations).toBe(3);
+    expect(executions).toBe(1);
+  });
+
   it("requires the pinned endpoint and protocol envelope", async () => {
     const signing = await signingFixture();
     const handler = createToolHandler({
@@ -102,6 +162,53 @@ describe("customer-hosted tools", () => {
         message: "Tool authorization is invalid",
       },
     });
+  });
+
+  it("passes only verified session and end-user identity to the tool", async () => {
+    const signing = await signingFixture();
+    let executed = false;
+    const tool = defineTool<{ customerId: string }, string>({
+      name: "lookup_customer",
+      revision: "2026-08-30.1",
+      description: "Look up a customer by ID.",
+      inputSchema: {
+        type: "object",
+        properties: { customerId: { type: "string" } },
+        required: ["customerId"],
+        additionalProperties: false,
+      },
+      execute(_input, context) {
+        executed = true;
+        expect(context.sessionId).toBe("00000000-0000-4000-8000-000000000001");
+        expect(context.externalUserId).toBe("customer-user-1");
+        return "ok";
+      },
+    });
+    const handler = createToolHandler({
+      endpoint, issuer, jwks: signing.jwks,
+      executionStore: createMemoryToolExecutionStore(), tools: [tool],
+    });
+    const invocation = {
+      ...fixtureInvocation(),
+      sessionId: "00000000-0000-4000-8000-000000000001",
+      externalUserId: "customer-user-1",
+    };
+    const wrongClaim = await handler(await signedRequest(
+      signing.privateKey, invocation, invocation,
+      { external_user_id: "customer-user-2" },
+    ));
+    expect(wrongClaim.status).toBe(401);
+    const incompleteInvocation: CustomerToolInvocation = { ...invocation };
+    delete incompleteInvocation.externalUserId;
+    const incompleteBody = await handler(await signedRequest(
+      signing.privateKey, invocation, incompleteInvocation,
+    ));
+    expect(incompleteBody.status).toBe(400);
+    expect(executed).toBe(false);
+    const accepted = await handler(await signedRequest(signing.privateKey, invocation));
+    expect(accepted.status).toBe(200);
+    expect(await accepted.json()).toMatchObject({ ok: true, output: "ok" });
+    expect(executed).toBe(true);
   });
 
   it("supports local execution without an HTTP round trip", async () => {
@@ -160,6 +267,7 @@ async function signedRequest(
   privateKey: CryptoKey,
   signedInvocation: CustomerToolInvocation,
   requestInvocation: CustomerToolInvocation = signedInvocation,
+  claimOverrides: Record<string, unknown> = {},
 ): Promise<Request> {
   const signedBody = JSON.stringify(signedInvocation);
   const requestBody = JSON.stringify(requestInvocation);
@@ -173,6 +281,11 @@ async function signedRequest(
     tool_revision_id: signedInvocation.toolRevisionId,
     tool_name: signedInvocation.toolName,
     handler_revision: signedInvocation.handlerRevision,
+    ...(signedInvocation.sessionId === undefined ? {} : {
+      session_id: signedInvocation.sessionId,
+      external_user_id: signedInvocation.externalUserId,
+    }),
+    ...claimOverrides,
   })
     .setProtectedHeader({ alg: "ES256", kid: "test-v1", typ: "codespring-agent-tool+jwt" })
     .setIssuer(issuer)

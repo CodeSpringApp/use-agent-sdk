@@ -43,6 +43,9 @@ export interface ToolExecutionContext {
   agentRevisionId: string;
   toolId: string;
   toolRevisionId: string;
+  /** Present when the session was created with a verified external user ID. */
+  sessionId?: string;
+  externalUserId?: string;
   signal: AbortSignal;
 }
 
@@ -81,6 +84,8 @@ export interface CustomerToolInvocation {
   toolRevisionId: string;
   toolName: string;
   handlerRevision: string;
+  sessionId?: string;
+  externalUserId?: string;
   input: Record<string, unknown>;
 }
 
@@ -110,6 +115,8 @@ export interface ToolHandlerOptions {
   endpoint: string;
   tools: readonly CustomerHostedToolDefinition[];
   executionStore: ToolExecutionStore;
+  /** Recheck application access on every signed delivery, including receipt replay. */
+  authorize?: (context: ToolExecutionContext) => void | Promise<void>;
   issuer?: string;
   jwksUrl?: string;
   jwks?: JSONWebKeySet;
@@ -212,7 +219,9 @@ export function createToolHandler(
         claims.tool_id !== invocation.toolId ||
         claims.tool_revision_id !== invocation.toolRevisionId ||
         claims.tool_name !== invocation.toolName ||
-        claims.handler_revision !== invocation.handlerRevision
+        claims.handler_revision !== invocation.handlerRevision ||
+        claims.session_id !== invocation.sessionId ||
+        claims.external_user_id !== invocation.externalUserId
       ) {
         throw new Error("claims do not match body");
       }
@@ -233,19 +242,30 @@ export function createToolHandler(
       });
     }
 
+    const context: ToolExecutionContext = {
+      operationId: invocation.operationId,
+      tenantId: invocation.tenantId,
+      environmentId: invocation.environmentId,
+      agentRevisionId: invocation.agentRevisionId,
+      toolId: invocation.toolId,
+      toolRevisionId: invocation.toolRevisionId,
+      ...(invocation.sessionId === undefined ? {} : {
+        sessionId: invocation.sessionId,
+        externalUserId: invocation.externalUserId,
+      }),
+      signal: request.signal,
+    };
+    try {
+      await options.authorize?.(context);
+    } catch (error) {
+      return resultResponse(failureResult(invocation.operationId, error));
+    }
+
     try {
       const result = await options.executionStore.run(scopedOperationKey(invocation), async () => {
         try {
           const input = validateToolInput(tool.inputSchema, invocation.input);
-          const output = await tool.execute(input, {
-            operationId: invocation.operationId,
-            tenantId: invocation.tenantId,
-            environmentId: invocation.environmentId,
-            agentRevisionId: invocation.agentRevisionId,
-            toolId: invocation.toolId,
-            toolRevisionId: invocation.toolRevisionId,
-            signal: request.signal,
-          });
+          const output = await tool.execute(input, context);
           return {
             ok: true,
             operationId: invocation.operationId,
@@ -425,17 +445,31 @@ async function readBoundedBody(request: Request, maximumBytes: number): Promise<
 
 function parseInvocation(value: unknown): CustomerToolInvocation {
   if (!isRecord(value)) throw new CustomerToolError("invalid_tool_invocation", "Tool invocation is invalid");
-  const expected = [
+  const required = [
     "schemaVersion", "operationId", "tenantId", "environmentId", "agentRevisionId",
     "toolId", "toolRevisionId", "toolName", "handlerRevision", "input",
   ];
-  if (Object.keys(value).some((key) => !expected.includes(key)) || value.schemaVersion !== 1) {
+  const allowed = [...required, "sessionId", "externalUserId"];
+  if (Object.keys(value).some((key) => !allowed.includes(key)) || value.schemaVersion !== 1) {
     throw new CustomerToolError("invalid_tool_invocation", "Tool invocation is invalid");
   }
-  for (const key of expected.slice(1, -1)) {
+  for (const key of required.slice(1, -1)) {
     if (typeof value[key] !== "string" || value[key].length < 1 || value[key].length > 256) {
       throw new CustomerToolError("invalid_tool_invocation", "Tool invocation is invalid");
     }
+  }
+  if ((value.sessionId === undefined) !== (value.externalUserId === undefined)) {
+    throw new CustomerToolError("invalid_tool_invocation", "Tool invocation identity is invalid");
+  }
+  if (value.sessionId !== undefined && (
+    typeof value.sessionId !== "string" ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value.sessionId) ||
+    typeof value.externalUserId !== "string" ||
+    value.externalUserId.trim() !== value.externalUserId ||
+    value.externalUserId.length < 1 ||
+    value.externalUserId.length > 255
+  )) {
+    throw new CustomerToolError("invalid_tool_invocation", "Tool invocation identity is invalid");
   }
   if (!isRecord(value.input)) throw new CustomerToolError("invalid_tool_invocation", "Tool invocation input is invalid");
   return value as unknown as CustomerToolInvocation;

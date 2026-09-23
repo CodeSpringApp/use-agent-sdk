@@ -96,6 +96,15 @@ describe("public SDK", () => {
     expect(session.id).toBe("00000000-0000-4000-8000-000000000001");
     expect(requests[0]?.headers.get("Authorization")).toBe("Bearer ua_test_secret");
     expect(await requests[0]?.json()).toEqual({ agentRevisionId: "support@7" });
+
+    await client.sessions.create(
+      createAgent({ id: "support", revision: "7" }),
+      { externalUserId: "customer-user-1" },
+    );
+    expect(await requests[1]?.json()).toEqual({
+      agentRevisionId: "support@7",
+      externalUserId: "customer-user-1",
+    });
   });
 
   test("surfaces stable runtime error metadata", async () => {

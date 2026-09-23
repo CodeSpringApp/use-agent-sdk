@@ -35,6 +35,15 @@ candidates, fallback, budgets, and policy. Publishing resolves the profile to an
 immutable policy revision while credential rotation remains independent.
 
 API keys are server-only. Do not pass the server client into a browser bundle.
+To bind customer-hosted tools to an application user, create the session from
+your authenticated server with `agents.sessions.create(support, {
+externalUserId: user.id })`. For browser-created sessions, the supplied ID must
+match the user bound to the issued client token. The runtime signs both
+`sessionId` and `externalUserId` into each customer-hosted tool request; the
+verified handler exposes them as `context.sessionId` and
+`context.externalUserId`. Existing sessions without an external user ID retain
+the original tool envelope, so tools that require user identity should reject
+an absent `context.externalUserId`.
 
 ### Realtime voice and phone calls
 

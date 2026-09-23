@@ -547,10 +547,16 @@ export class AgentClient {
   constructor(private readonly transport: Transport) {}
 
   readonly sessions = {
-    create: async (agent: AgentDefinition, options: RequestOptions = {}): Promise<AgentSession> => {
+    create: async (
+      agent: AgentDefinition,
+      options: RequestOptions & { externalUserId?: string } = {},
+    ): Promise<AgentSession> => {
       const created = await this.transport.request<CreateSessionResponse>("/v1/sessions", {
         method: "POST",
-        body: JSON.stringify({ agentRevisionId: agent.revisionId }),
+        body: JSON.stringify({
+          agentRevisionId: agent.revisionId,
+          ...(options.externalUserId === undefined ? {} : { externalUserId: options.externalUserId }),
+        }),
         ...(options.signal === undefined ? {} : { signal: options.signal }),
       });
       return new AgentSession(this.transport, created.sessionId);

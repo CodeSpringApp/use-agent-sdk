@@ -361,6 +361,8 @@ export async function executeToolLocally<
     agentRevisionId: context.agentRevisionId ?? "local-agent@1",
     toolId: context.toolId ?? tool.name,
     toolRevisionId: context.toolRevisionId ?? `${tool.name}@1`,
+    ...(context.sessionId === undefined ? {} : { sessionId: context.sessionId }),
+    ...(context.externalUserId === undefined ? {} : { externalUserId: context.externalUserId }),
     signal: context.signal ?? new AbortController().signal,
   });
 }

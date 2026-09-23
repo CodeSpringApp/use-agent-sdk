@@ -212,6 +212,7 @@ describe("customer-hosted tools", () => {
   });
 
   it("supports local execution without an HTTP round trip", async () => {
+    let localIdentity: { sessionId: string | undefined; externalUserId: string | undefined } | undefined;
     const add = defineTool<{ left: number; right: number }, number>({
       name: "add",
       revision: "1",
@@ -225,12 +226,23 @@ describe("customer-hosted tools", () => {
         required: ["left", "right"],
         additionalProperties: false,
       },
-      execute(input) {
+      execute(input, context) {
+        localIdentity = {
+          sessionId: context.sessionId,
+          externalUserId: context.externalUserId,
+        };
         return input.left + input.right;
       },
     });
 
-    await expect(executeToolLocally(add, { left: 2, right: 3 })).resolves.toBe(5);
+    await expect(executeToolLocally(add, { left: 2, right: 3 }, {
+      sessionId: "00000000-0000-4000-8000-000000000001",
+      externalUserId: "customer-user-1",
+    })).resolves.toBe(5);
+    expect(localIdentity).toEqual({
+      sessionId: "00000000-0000-4000-8000-000000000001",
+      externalUserId: "customer-user-1",
+    });
     await expect(executeToolLocally(add, { left: 2.5, right: 3 })).rejects.toMatchObject({
       code: "invalid_tool_arguments",
     });

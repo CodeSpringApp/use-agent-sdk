@@ -626,3 +626,39 @@ export type ClientTokenResult =
       /** ISO timestamp or Unix time in seconds/milliseconds. */
       expiresAt?: string | number;
     };
+
+/** Provider inventory is distinct from reusable workspace model IDs. */
+export interface ProviderModel {
+  id: string;
+  displayName: string;
+  provider: "openai" | "anthropic" | "openrouter";
+  compatibility: "supported" | "unknown";
+  capabilities: string[];
+  contextTokens: number | null;
+  maxOutputTokens: number | null;
+  disabledReason: string | null;
+}
+export interface ProviderModelPage extends Page<ProviderModel> {
+  snapshotId: string;
+  fetchedAt: string;
+  stale: boolean;
+  warning: string | null;
+}
+export interface ProviderModelOptions extends PageOptions {
+  query?: string;
+  refresh?: boolean;
+}
+/** Metadata check only; no inference call or charge is made. */
+export interface ProviderModelValidation {
+  modelId: string;
+  provider: ProviderModel["provider"];
+  listed: boolean;
+  inferenceValidated: false;
+  compatibility: ProviderModel["compatibility"];
+  allowed: boolean;
+  contextTokens: number | null;
+  maxOutputTokens: number | null;
+  capabilities: string[];
+  fetchedAt: string;
+  stale: boolean;
+}

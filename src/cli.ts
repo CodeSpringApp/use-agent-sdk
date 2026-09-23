@@ -167,6 +167,26 @@ export async function runCli(
       return data.authenticated ? 0 : 3;
     }
 
+    if (group === "models" && (action === "discover" || action === "validate")) {
+      const connection = option(rest, "--connection");
+      if (!connection) throw new CliError(2, "connection_required", "Provide --connection with a stored provider connection ID");
+      if (rest.some(arg => ["--api-key", "--secret", "--probe"].includes(arg))) {
+        throw new CliError(2, "unsupported_option", "Model commands use stored provider keys and metadata checks only; secret arguments and inference probes are not supported");
+      }
+      const client = await authenticatedClient(environment, authDependencies(dependencies, environment, stderr));
+      if (action === "discover") {
+        const query = option(rest, "--query");
+        const page = await client.providerModels.list(connection, { ...pageOptions(rest), ...(query ? { query } : {}), refresh: rest.includes("--refresh") });
+        writeResult(stdout, json, page, `${page.stale ? "Cached" : "Updated"}: ${page.fetchedAt}\n${formatPage(page.items, "id", page.cursor)}${page.warning ? `${page.warning}\n` : ""}`);
+      } else {
+        const model = option(rest, "--model");
+        if (!model) throw new CliError(2, "model_required", "Provide --model with an exact provider model ID");
+        const result = await client.providerModels.validate(connection, model);
+        writeResult(stdout, json, result, `${result.modelId}\nListed by provider: ${result.listed}\nAllowed by key policy: ${result.allowed}\nRuntime compatibility: ${result.compatibility}\nMetadata only; inference was not tested.\n`);
+      }
+      return 0;
+    }
+
     if ((group === "agents" || group === "tools") && (action === "list" || action === "get")) {
       const client = await authenticatedClient(
         environment,
@@ -405,6 +425,8 @@ Usage:
   use-agent agents get <agent-id> [--json]
   use-agent tools list [--limit N] [--cursor CURSOR] [--json]
   use-agent tools get <tool-id> [--json]
+  use-agent models discover --connection ID [--query TEXT] [--limit N] [--cursor CURSOR] [--refresh] [--json]
+  use-agent models validate --connection ID --model MODEL [--json]
   use-agent skills list [--json]
   use-agent skills get <name> [--json]
   use-agent skills install [--target codex|claude|cursor|ferb] [--path PATH] --yes [--force]

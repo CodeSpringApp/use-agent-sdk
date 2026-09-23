@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "packageVersion": "0.5.0",
+  "packageVersion": "0.14.0",
   "skills": [
     {
       "name": "app-builder",
@@ -24,7 +24,7 @@
       "name": "control-plane",
       "description": "Inspect and safely manage control-plane resources.",
       "path": "content/control-plane.md",
-      "sha256": "33fc5aa5ea86328ac19589ae2165d85a9b2bec47fbbf9ca96a64c73b87b05b36"
+      "sha256": "4a8ab4fbd1a385c402980781a7adb832bc9a4b5f3dc77e17595f9f69bb8797cd"
     }
   ]
 }

@@ -23,6 +23,26 @@ class MemoryCredentialStore implements CredentialStore {
 }
 
 describe("Use Agent CLI", () => {
+  test("discovers provider inventory and validates metadata without inference", async () => {
+    const stdout = new Sink(); const stderr = new Sink(); const requests: Array<{url:string;body:unknown}> = [];
+    const fetchMock = (async (input, init) => {
+      requests.push({url:String(input),body:init?.body ? JSON.parse(String(init.body)) : null});
+      return json(String(input).includes("/validate")
+        ? {modelId:"openai/example",provider:"openrouter",listed:true,allowed:true,inferenceValidated:false,compatibility:"supported",contextTokens:128000,maxOutputTokens:8192,capabilities:["tools"],fetchedAt:"2026-09-23T00:00:00Z",stale:false}
+        : {items:[],cursor:"next-page",hasMore:true,snapshotId:"snapshot",fetchedAt:"2026-09-23T00:00:00Z",stale:false,warning:null});
+    }) as typeof fetch;
+    const dependencies={stdout,stderr,env:{CODESPRING_AGENTS_API_KEY:"test-server-key"},fetch:fetchMock};
+    expect(await runCli(["models","discover","--connection","stored-key","--query","example","--limit","10","--json"],dependencies)).toBe(0);
+    expect(requests[0]?.url).toContain("/provider-connections/stored-key/models?limit=10&q=example");
+    expect(stdout.value).toContain("next-page");
+    expect(await runCli(["models","validate","--connection","stored-key","--model","openai/example","--json"],dependencies)).toBe(0);
+    expect(requests[1]?.body).toEqual({modelId:"openai/example"});
+    expect(stdout.value).toContain('"inferenceValidated":false');
+    expect(stdout.value).not.toContain("test-server-key");
+    expect(await runCli(["models","validate","--connection","stored-key","--model","openai/example","--probe"],dependencies)).toBe(2);
+    expect(requests).toHaveLength(2);
+  });
+
   test("prints digest-verified packaged skill content offline", async () => {
     const stdout = new Sink();
     const stderr = new Sink();

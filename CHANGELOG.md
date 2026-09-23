@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.14.0 — 2026-09-23
+
+- Add providerModels.list/validate and CLI models discover/validate for stored provider connections. These are metadata-only operations; runtime model IDs and session APIs are unchanged.
+
 ## 0.13.0 — 2026-09-17
 
 - Add durable realtime voice calls with automatic endpointing, interruption,

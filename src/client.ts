@@ -1,3 +1,4 @@
+import type { ProviderModelPage, ProviderModelOptions, ProviderModelValidation } from "./types";
 import type {
   AgentDefinition,
   AgentConnection,
@@ -555,6 +556,20 @@ export class AgentClient {
       return new AgentSession(this.transport, created.sessionId);
     },
     get: (sessionId: string): AgentSession => new AgentSession(this.transport, sessionId),
+  };
+
+  /** Requires provider_connections:read. Uses stored keys only on the server. */
+  readonly providerModels = {
+    list: (connectionId: string, options: ProviderModelOptions = {}): Promise<ProviderModelPage> => {
+      const query = new URLSearchParams(pageQuery(options));
+      if (options.query) query.set("q", options.query);
+      if (options.refresh) query.set("refresh", "true");
+      return this.transport.request(`/v1/provider-connections/${encodeURIComponent(connectionId)}/models?${query}`, requestInit(options));
+    },
+    validate: (connectionId: string, modelId: string, options: RequestOptions = {}): Promise<ProviderModelValidation> =>
+      this.transport.request(`/v1/provider-connections/${encodeURIComponent(connectionId)}/models/validate`, {
+        method: "POST", body: JSON.stringify({ modelId }), ...requestInit(options),
+      }),
   };
 
   readonly agents = {

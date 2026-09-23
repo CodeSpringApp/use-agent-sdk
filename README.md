@@ -624,3 +624,24 @@ bun run showcase
 Open `http://127.0.0.1:5173` for the Paper UI or append `?theme=dark` for
 the dark palette. The showcase uses mocked durable events and makes no
 external API calls.
+
+### Discover provider models
+
+Provider inventory is separate from the reusable model IDs used by agents. With
+`provider_connections:read` permission, inspect a stored connection without
+exposing its key or making inference calls:
+
+```sh
+use-agent models discover --connection CONNECTION_ID --query sonnet --json
+use-agent models validate --connection CONNECTION_ID --model EXACT_PROVIDER_MODEL_ID --json
+```
+
+Follow `cursor` with `--cursor` to load later pages. `--refresh` requests a bounded
+catalogue refresh. Validation reports provider listing, connection policy, and
+runtime compatibility separately; `inferenceValidated` is always false.
+Discovery can be stale or unavailable without making a saved agent unusable.
+
+The typed server client exposes `client.providerModels.list(connectionId, options)`
+and `client.providerModels.validate(connectionId, modelId)`. Neither method changes
+key restrictions or creates a saved model. Existing model IDs/session APIs remain
+unchanged. These methods require the model-discovery server release.

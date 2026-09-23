@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.15.0 — 2026-09-23
+
+- Let authenticated sessions carry an external user ID. Browser-created sessions
+  must match the subject in their client token; the runtime signs the session and
+  user IDs into customer-hosted tool requests.
+- Verify both signed IDs and expose them to hosted tool handlers. An optional
+  authorization hook rechecks access before each execution or receipt replay.
+  Legacy sessions remain supported without identity-bound tool access.
+
 ## 0.14.0 — 2026-09-23
 
 - Add providerModels.list/validate and CLI models discover/validate for stored provider connections. These are metadata-only operations; runtime model IDs and session APIs are unchanged.

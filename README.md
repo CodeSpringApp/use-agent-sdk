@@ -38,16 +38,20 @@ API keys are server-only. Do not pass the server client into a browser bundle.
 The runtime signs its session ID and, when present, its opaque authenticated
 subject into each customer-hosted tool authorization. The verified handler
 exposes these as `context.sessionId` and `context.subjectId`. Bind the session
-to an application user and resource on your server, then recheck access when
-the tool runs. The opaque subject is scoped to the tenant and environment; it
-is not an application user ID.
+to an application user and resource on your server. The handler's
+`authorize(context, input)` hook receives validated tool input and rechecks
+current access on every signed delivery, including stored-result replay. The
+opaque subject is scoped to the tenant and environment; it is not an
+application user ID.
 
 For compatibility, sessions created with `externalUserId` still expose
 `context.externalUserId`. Create these sessions from an authenticated server
 or supply the ID when creating a browser session with a matching user-bound
 client token. Existing sessions may have no external user ID; tools that need
 one must handle its absence. Local tool tests can pass `sessionId` and
-`subjectId` to `executeToolLocally` to exercise the same authorization path.
+`subjectId` to `executeToolLocally` to exercise tool execution. That helper
+does not call the handler's `authorize` hook; test authorization with a signed
+handler request as well.
 
 ### Realtime voice and phone calls
 
@@ -232,9 +236,11 @@ verifies it before dispatching the exact published handler revision.
 ```ts
 import {
   createToolHandler,
+  CustomerToolError,
   defineTool,
 } from "@codespring-app/use-agent";
 import { db } from "./db";
+import { sessionBindings } from "./session-bindings";
 import { toolExecutionStore } from "./durable-tool-execution-store";
 
 const lookupCustomer = defineTool<{ customerId: string }, { name: string }>({
@@ -262,6 +268,16 @@ export const POST = createToolHandler({
   endpoint: "https://app.example.com/api/agent-tools",
   tools: [lookupCustomer],
   executionStore: toolExecutionStore,
+  async authorize(context, input) {
+    // Application-owned lookups; recheck both the actor and this resource.
+    if (!context.sessionId || typeof input.customerId !== "string") {
+      throw new CustomerToolError("access_denied", "Access unavailable");
+    }
+    const actor = await sessionBindings.resolve(context.sessionId);
+    if (!actor || !(await db.customers.canRead(actor, input.customerId))) {
+      throw new CustomerToolError("access_denied", "Access unavailable");
+    }
+  },
 });
 ```
 
@@ -285,6 +301,9 @@ A dependency-injected handler example is included at
 calls and replay a completed result for the supplied tenant-scoped operation
 key. Use a durable database or key-value store in production. The included
 `createMemoryToolExecutionStore()` is only for local development and tests.
+The `authorize` callback receives a frozen copy of the schema-validated input
+before the store is consulted. A denied call cannot receive a prior result.
+One-argument `authorize(context)` callbacks remain supported.
 
 ```ts
 import {

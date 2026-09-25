@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.17.0 — 2026-09-25
+
+- Pass schema-validated tool input to customer-hosted `authorize(context, input)`
+  before every execution or stored-result replay, so applications can recheck
+  record-level access after permissions change.
+- Keep one-argument authorization callbacks compatible. Invalid arguments are
+  rejected before authorization or the execution store, and policy code
+  receives a frozen copy that cannot change what the tool executes.
+- Clarify signed-handler authorization tests and local tool execution in the
+  bundled customer-tools guidance.
+
 ## 0.16.0 — 2026-09-25
 
 - Verify generic signed runtime session and opaque subject claims on

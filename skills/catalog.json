@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "packageVersion": "0.14.0",
+  "packageVersion": "0.17.0",
   "skills": [
     {
       "name": "app-builder",
@@ -12,7 +12,7 @@
       "name": "customer-tools",
       "description": "Build signed, retry-safe customer-hosted tools.",
       "path": "content/customer-tools.md",
-      "sha256": "bab1415d327e7699ae6f0538298da15f60092754c2e0676fcd61c82fc74eaa26"
+      "sha256": "b321fbf650332d7a1601448a595112a21ef97c160ba1f608b76b2453b33babea"
     },
     {
       "name": "react-ui",

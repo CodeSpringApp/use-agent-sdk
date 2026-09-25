@@ -43,8 +43,11 @@ export interface ToolExecutionContext {
   agentRevisionId: string;
   toolId: string;
   toolRevisionId: string;
-  /** Present when the session was created with a verified external user ID. */
+  /** Runtime session ID from the signed tool authorization. */
   sessionId?: string;
+  /** Opaque, tenant-scoped authenticated subject when the session has one. */
+  subjectId?: string;
+  /** Legacy application user ID, when supplied at session creation. */
   externalUserId?: string;
   signal: AbortSignal;
 }
@@ -199,6 +202,7 @@ export function createToolHandler(
       return jsonError(400, "invalid_tool_invocation", message);
     }
 
+    let signedContext: { sessionId?: string; subjectId?: string } = {};
     try {
       const verified = await jwtVerify(token, key, {
         issuer,
@@ -208,6 +212,8 @@ export function createToolHandler(
       });
       const digest = await sha256Base64Url(body);
       const claims = verified.payload;
+      const signedSessionId = claims.agent_session_id;
+      const signedSubjectId = claims.subject_id;
       if (
         claims.body_sha256 !== digest ||
         claims.jti !== invocation.operationId ||
@@ -221,10 +227,27 @@ export function createToolHandler(
         claims.tool_name !== invocation.toolName ||
         claims.handler_revision !== invocation.handlerRevision ||
         claims.session_id !== invocation.sessionId ||
-        claims.external_user_id !== invocation.externalUserId
+        claims.external_user_id !== invocation.externalUserId ||
+        (signedSessionId !== undefined && (
+          !validSessionId(signedSessionId) ||
+          (invocation.sessionId !== undefined && signedSessionId !== invocation.sessionId)
+        )) ||
+        (signedSubjectId !== undefined && (
+          signedSessionId === undefined ||
+          typeof signedSubjectId !== "string" ||
+          signedSubjectId.trim() !== signedSubjectId ||
+          signedSubjectId.length < 1 ||
+          signedSubjectId.length > 255
+        ))
       ) {
         throw new Error("claims do not match body");
       }
+      signedContext = {
+        ...(signedSessionId === undefined
+          ? (invocation.sessionId === undefined ? {} : { sessionId: invocation.sessionId })
+          : { sessionId: signedSessionId }),
+        ...(signedSubjectId === undefined ? {} : { subjectId: signedSubjectId }),
+      };
     } catch {
       return jsonError(401, "invalid_tool_authorization", "Tool authorization is invalid");
     }
@@ -249,8 +272,8 @@ export function createToolHandler(
       agentRevisionId: invocation.agentRevisionId,
       toolId: invocation.toolId,
       toolRevisionId: invocation.toolRevisionId,
-      ...(invocation.sessionId === undefined ? {} : {
-        sessionId: invocation.sessionId,
+      ...signedContext,
+      ...(invocation.externalUserId === undefined ? {} : {
         externalUserId: invocation.externalUserId,
       }),
       signal: request.signal,
@@ -362,6 +385,7 @@ export async function executeToolLocally<
     toolId: context.toolId ?? tool.name,
     toolRevisionId: context.toolRevisionId ?? `${tool.name}@1`,
     ...(context.sessionId === undefined ? {} : { sessionId: context.sessionId }),
+    ...(context.subjectId === undefined ? {} : { subjectId: context.subjectId }),
     ...(context.externalUserId === undefined ? {} : { externalUserId: context.externalUserId }),
     signal: context.signal ?? new AbortController().signal,
   });
@@ -464,8 +488,7 @@ function parseInvocation(value: unknown): CustomerToolInvocation {
     throw new CustomerToolError("invalid_tool_invocation", "Tool invocation identity is invalid");
   }
   if (value.sessionId !== undefined && (
-    typeof value.sessionId !== "string" ||
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value.sessionId) ||
+    !validSessionId(value.sessionId) ||
     typeof value.externalUserId !== "string" ||
     value.externalUserId.trim() !== value.externalUserId ||
     value.externalUserId.length < 1 ||
@@ -475,6 +498,11 @@ function parseInvocation(value: unknown): CustomerToolInvocation {
   }
   if (!isRecord(value.input)) throw new CustomerToolError("invalid_tool_invocation", "Tool invocation input is invalid");
   return value as unknown as CustomerToolInvocation;
+}
+
+function validSessionId(value: unknown): value is string {
+  return typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value);
 }
 
 function validateToolInput(

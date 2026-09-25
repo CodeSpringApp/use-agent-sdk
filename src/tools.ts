@@ -118,7 +118,7 @@ export interface ToolHandlerOptions {
   endpoint: string;
   tools: readonly CustomerHostedToolDefinition[];
   executionStore: ToolExecutionStore;
-  /** Recheck application access to the validated input on every signed delivery, including receipt replay. */
+  /** Recheck application access on every signed delivery and replay; input is a frozen copy of validated arguments. */
   authorize?: (context: ToolExecutionContext, input: Readonly<Record<string, unknown>>) => void | Promise<void>;
   issuer?: string;
   jwksUrl?: string;

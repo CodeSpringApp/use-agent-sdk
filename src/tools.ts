@@ -118,8 +118,8 @@ export interface ToolHandlerOptions {
   endpoint: string;
   tools: readonly CustomerHostedToolDefinition[];
   executionStore: ToolExecutionStore;
-  /** Recheck application access on every signed delivery, including receipt replay. */
-  authorize?: (context: ToolExecutionContext) => void | Promise<void>;
+  /** Recheck application access on every signed delivery and replay; input is a frozen copy of validated arguments. */
+  authorize?: (context: ToolExecutionContext, input: Readonly<Record<string, unknown>>) => void | Promise<void>;
   issuer?: string;
   jwksUrl?: string;
   jwks?: JSONWebKeySet;
@@ -278,8 +278,17 @@ export function createToolHandler(
       }),
       signal: request.signal,
     };
+    let input: Record<string, unknown>;
     try {
-      await options.authorize?.(context);
+      input = validateToolInput(tool.inputSchema, invocation.input);
+    } catch (error) {
+      return resultResponse(failureResult(invocation.operationId, error));
+    }
+    try {
+      // Give policy code a separate frozen copy so it cannot change what executes.
+      if (options.authorize) {
+        await options.authorize(context, deepFreeze(structuredClone(input)));
+      }
     } catch (error) {
       return resultResponse(failureResult(invocation.operationId, error));
     }
@@ -287,7 +296,6 @@ export function createToolHandler(
     try {
       const result = await options.executionStore.run(scopedOperationKey(invocation), async () => {
         try {
-          const input = validateToolInput(tool.inputSchema, invocation.input);
           const output = await tool.execute(input, context);
           return {
             ok: true,

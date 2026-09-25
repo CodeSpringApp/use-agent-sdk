@@ -121,6 +121,221 @@ describe("customer-hosted tools", () => {
     expect(executions).toBe(1);
   });
 
+  it("denies a privileged tool to an HR role and rechecks a signed session on replay", async () => {
+    const signing = await signingFixture();
+    const sessionId = "00000000-0000-4000-8000-000000000001";
+    const roles = new Map([[sessionId, "hr" as "hr" | "superadmin"]]);
+    let searches = 0;
+    let promotions = 0;
+    const noInput = {
+      type: "object" as const,
+      properties: {},
+      required: [],
+      additionalProperties: false as const,
+    };
+    const search = defineTool({
+      name: "search_candidates",
+      revision: "1",
+      description: "Search permitted applications.",
+      inputSchema: noInput,
+      execute() {
+        searches += 1;
+        return "permitted results";
+      },
+    });
+    const promote = defineTool({
+      name: "promote_user",
+      revision: "1",
+      description: "Promote a user to super admin.",
+      inputSchema: noInput,
+      execute() {
+        promotions += 1;
+        return "promoted";
+      },
+    });
+    const handler = createToolHandler({
+      endpoint, issuer, jwks: signing.jwks,
+      tools: [search, promote],
+      executionStore: createMemoryToolExecutionStore(),
+      authorize(context) {
+        const role = context.sessionId && roles.get(context.sessionId);
+        if (!role || (context.toolId === "promote-user" && role !== "superadmin")) {
+          throw new CustomerToolError("access_denied", "Access unavailable");
+        }
+      },
+    });
+    const base = {
+      ...fixtureInvocation(),
+      input: {},
+    };
+    const searchCall = {
+      ...base,
+      operationId: "tool:turn_1:0:1",
+      toolId: "search-candidates",
+      toolRevisionId: "search-candidates@1",
+      toolName: "search_candidates",
+      handlerRevision: "1",
+    };
+    const promotionCall = {
+      ...base,
+      operationId: "tool:turn_1:0:2",
+      toolId: "promote-user",
+      toolRevisionId: "promote-user@1",
+      toolName: "promote_user",
+      handlerRevision: "1",
+    };
+    const claims = { agent_session_id: sessionId, subject_id: "opaque-actor" };
+
+    expect(await (await handler(await signedRequest(signing.privateKey, searchCall, searchCall, claims))).json())
+      .toMatchObject({ ok: true, output: "permitted results" });
+    expect(await (await handler(await signedRequest(signing.privateKey, promotionCall, promotionCall, claims))).json())
+      .toMatchObject({ ok: false, error: { code: "access_denied" } });
+    expect(searches).toBe(1);
+    expect(promotions).toBe(0);
+
+    roles.set(sessionId, "superadmin");
+    expect(await (await handler(await signedRequest(signing.privateKey, promotionCall, promotionCall, claims))).json())
+      .toMatchObject({ ok: true, output: "promoted" });
+    expect(promotions).toBe(1);
+
+    roles.set(sessionId, "hr");
+    expect(await (await handler(await signedRequest(signing.privateKey, promotionCall, promotionCall, claims))).json())
+      .toMatchObject({ ok: false, error: { code: "access_denied" } });
+    expect(promotions).toBe(1);
+  });
+
+  it("rechecks validated record access before concurrent delivery and stored-result replay", async () => {
+    const signing = await signingFixture();
+    const sessionId = "00000000-0000-4000-8000-000000000001";
+    const allowedCandidates = new Set(["candidate-1"]);
+    let authorizations = 0;
+    let executions = 0;
+    let stores = 0;
+    const memoryStore = createMemoryToolExecutionStore();
+    const readCandidate = defineTool<{ candidateId: string; labels?: string[] }, string>({
+      name: "read_candidate",
+      revision: "1",
+      description: "Read an allowed candidate.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          candidateId: { type: "string" },
+          labels: { type: "array", items: { type: "string" } },
+        },
+        required: ["candidateId"],
+        additionalProperties: false,
+      },
+      execute(input) {
+        executions += 1;
+        expect(input).toEqual({ candidateId: "candidate-1", labels: ["urgent"] });
+        return "permitted candidate";
+      },
+    });
+    const handler = createToolHandler({
+      endpoint, issuer, jwks: signing.jwks,
+      tools: [readCandidate],
+      executionStore: {
+        run(operationId, execute) {
+          stores += 1;
+          return memoryStore.run(operationId, execute);
+        },
+      },
+      authorize(context, input) {
+        authorizations += 1;
+        expect(context.sessionId).toBe(sessionId);
+        expect(context.subjectId).toBe("opaque-actor");
+        expect(context.externalUserId).toBeUndefined();
+        expect(input).toEqual({ candidateId: "candidate-1", labels: ["urgent"] });
+        expect(Object.isFrozen(input)).toBe(true);
+        expect(Object.isFrozen(input.labels)).toBe(true);
+        expect(() => (input.labels as string[]).push("forged")).toThrow();
+        if (!allowedCandidates.has(input.candidateId as string)) {
+          throw new CustomerToolError("candidate_access_denied", "Candidate access is unavailable");
+        }
+      },
+    });
+    const invocation = {
+      ...fixtureInvocation(),
+      toolId: "read-candidate",
+      toolRevisionId: "read-candidate@1",
+      toolName: "read_candidate",
+      handlerRevision: "1",
+      input: { candidateId: "candidate-1", labels: ["urgent"] },
+    };
+    const claims = { agent_session_id: sessionId, subject_id: "opaque-actor" };
+    const [first, concurrent] = await Promise.all([
+      handler(await signedRequest(signing.privateKey, invocation, invocation, claims)),
+      handler(await signedRequest(signing.privateKey, invocation, invocation, claims)),
+    ]);
+    expect(await first.json()).toMatchObject({ ok: true, output: "permitted candidate" });
+    expect(await concurrent.json()).toMatchObject({ ok: true, output: "permitted candidate" });
+    expect(authorizations).toBe(2);
+    expect(stores).toBe(2);
+    expect(executions).toBe(1);
+
+    allowedCandidates.clear();
+    const deniedReplay = await handler(await signedRequest(signing.privateKey, invocation, invocation, claims));
+    expect(await deniedReplay.json()).toMatchObject({ ok: false, error: { code: "candidate_access_denied" } });
+    expect(authorizations).toBe(3);
+    expect(stores).toBe(2);
+    expect(executions).toBe(1);
+  });
+
+  it("rejects signed invalid input before calling authorization or the execution store", async () => {
+    const signing = await signingFixture();
+    let authorizations = 0;
+    let stores = 0;
+    let executions = 0;
+    const tool = defineTool<{ candidateId: string }, string>({
+      name: "read_candidate",
+      revision: "1",
+      description: "Read an allowed candidate.",
+      inputSchema: {
+        type: "object",
+        properties: { candidateId: { type: "string" } },
+        required: ["candidateId"],
+        additionalProperties: false,
+      },
+      execute() {
+        executions += 1;
+        return "candidate";
+      },
+    });
+    const handler = createToolHandler({
+      endpoint, issuer, jwks: signing.jwks,
+      tools: [tool],
+      executionStore: {
+        run(_operationId, execute) {
+          stores += 1;
+          return execute();
+        },
+      },
+      authorize() {
+        authorizations += 1;
+      },
+    });
+    const invocation = {
+      ...fixtureInvocation(),
+      toolId: "read-candidate",
+      toolRevisionId: "read-candidate@1",
+      toolName: "read_candidate",
+      handlerRevision: "1",
+      input: { candidateId: 42 },
+    };
+    const invalid = await handler(await signedRequest(signing.privateKey, invocation));
+    expect(await invalid.json()).toMatchObject({ ok: false, error: { code: "invalid_tool_arguments" } });
+    const unexpected = {
+      ...invocation,
+      operationId: "tool:turn_1:0:1",
+      input: { candidateId: "candidate-1", extra: "not declared" },
+    };
+    const invalidExtra = await handler(await signedRequest(signing.privateKey, unexpected));
+    expect(await invalidExtra.json()).toMatchObject({ ok: false, error: { code: "invalid_tool_arguments" } });
+    expect(authorizations).toBe(0);
+    expect(stores).toBe(0);
+    expect(executions).toBe(0);
+  });
+
   it("requires the pinned endpoint and protocol envelope", async () => {
     const signing = await signingFixture();
     const handler = createToolHandler({

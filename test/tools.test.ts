@@ -121,6 +121,89 @@ describe("customer-hosted tools", () => {
     expect(executions).toBe(1);
   });
 
+  it("denies a privileged tool to an HR role and rechecks a signed session on replay", async () => {
+    const signing = await signingFixture();
+    const sessionId = "00000000-0000-4000-8000-000000000001";
+    const roles = new Map([[sessionId, "hr" as "hr" | "superadmin"]]);
+    let searches = 0;
+    let promotions = 0;
+    const noInput = {
+      type: "object" as const,
+      properties: {},
+      required: [],
+      additionalProperties: false as const,
+    };
+    const search = defineTool({
+      name: "search_candidates",
+      revision: "1",
+      description: "Search permitted applications.",
+      inputSchema: noInput,
+      execute() {
+        searches += 1;
+        return "permitted results";
+      },
+    });
+    const promote = defineTool({
+      name: "promote_user",
+      revision: "1",
+      description: "Promote a user to super admin.",
+      inputSchema: noInput,
+      execute() {
+        promotions += 1;
+        return "promoted";
+      },
+    });
+    const handler = createToolHandler({
+      endpoint, issuer, jwks: signing.jwks,
+      tools: [search, promote],
+      executionStore: createMemoryToolExecutionStore(),
+      authorize(context) {
+        const role = context.sessionId && roles.get(context.sessionId);
+        if (!role || (context.toolId === "promote-user" && role !== "superadmin")) {
+          throw new CustomerToolError("access_denied", "Access unavailable");
+        }
+      },
+    });
+    const base = {
+      ...fixtureInvocation(),
+      input: {},
+    };
+    const searchCall = {
+      ...base,
+      operationId: "tool:turn_1:0:1",
+      toolId: "search-candidates",
+      toolRevisionId: "search-candidates@1",
+      toolName: "search_candidates",
+      handlerRevision: "1",
+    };
+    const promotionCall = {
+      ...base,
+      operationId: "tool:turn_1:0:2",
+      toolId: "promote-user",
+      toolRevisionId: "promote-user@1",
+      toolName: "promote_user",
+      handlerRevision: "1",
+    };
+    const claims = { agent_session_id: sessionId, subject_id: "opaque-actor" };
+
+    expect(await (await handler(await signedRequest(signing.privateKey, searchCall, searchCall, claims))).json())
+      .toMatchObject({ ok: true, output: "permitted results" });
+    expect(await (await handler(await signedRequest(signing.privateKey, promotionCall, promotionCall, claims))).json())
+      .toMatchObject({ ok: false, error: { code: "access_denied" } });
+    expect(searches).toBe(1);
+    expect(promotions).toBe(0);
+
+    roles.set(sessionId, "superadmin");
+    expect(await (await handler(await signedRequest(signing.privateKey, promotionCall, promotionCall, claims))).json())
+      .toMatchObject({ ok: true, output: "promoted" });
+    expect(promotions).toBe(1);
+
+    roles.set(sessionId, "hr");
+    expect(await (await handler(await signedRequest(signing.privateKey, promotionCall, promotionCall, claims))).json())
+      .toMatchObject({ ok: false, error: { code: "access_denied" } });
+    expect(promotions).toBe(1);
+  });
+
   it("requires the pinned endpoint and protocol envelope", async () => {
     const signing = await signingFixture();
     const handler = createToolHandler({

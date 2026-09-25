@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.16.0 — 2026-09-25
+
+- Verify generic signed runtime session and opaque subject claims on
+  customer-hosted tool calls, and expose them to authorization hooks and tool
+  handlers without requiring a legacy external user ID.
+- Let local tool tests supply the same session and subject context. Existing
+  signed tool requests and external user IDs remain compatible.
+
 ## 0.15.0 — 2026-09-23
 
 - Let authenticated sessions carry an external user ID. Browser-created sessions

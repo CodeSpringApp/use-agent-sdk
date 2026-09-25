@@ -211,8 +211,68 @@ describe("customer-hosted tools", () => {
     expect(executed).toBe(true);
   });
 
+  it("exposes generic signed session and subject claims without legacy body identity", async () => {
+    const signing = await signingFixture();
+    let received: { sessionId: string | undefined; subjectId: string | undefined; externalUserId: string | undefined } | undefined;
+    const tool = defineTool<{ customerId: string }, string>({
+      name: "lookup_customer",
+      revision: "2026-08-30.1",
+      description: "Look up a customer by ID.",
+      inputSchema: {
+        type: "object",
+        properties: { customerId: { type: "string" } },
+        required: ["customerId"],
+        additionalProperties: false,
+      },
+      execute(_input, context) {
+        received = {
+          sessionId: context.sessionId,
+          subjectId: context.subjectId,
+          externalUserId: context.externalUserId,
+        };
+        return "ok";
+      },
+    });
+    const handler = createToolHandler({
+      endpoint, issuer, jwks: signing.jwks,
+      executionStore: createMemoryToolExecutionStore(), tools: [tool],
+    });
+    const invocation = fixtureInvocation();
+    const claims = {
+      agent_session_id: "00000000-0000-4000-8000-000000000001",
+      subject_id: "opaque-user-1",
+    };
+    const accepted = await handler(await signedRequest(signing.privateKey, invocation, invocation, claims));
+    expect(accepted.status).toBe(200);
+    expect(received).toEqual({
+      sessionId: claims.agent_session_id,
+      subjectId: claims.subject_id,
+      externalUserId: undefined,
+    });
+
+    const wrongClaim = await handler(await signedRequest(signing.privateKey, {
+      ...invocation,
+      operationId: "tool:turn_1:0:1",
+      sessionId: "00000000-0000-4000-8000-000000000001",
+      externalUserId: "customer-user-1",
+    }, undefined, {
+      agent_session_id: "00000000-0000-4000-8000-000000000002",
+    }));
+    expect(wrongClaim.status).toBe(401);
+
+    const malformedClaim = await handler(await signedRequest(signing.privateKey, {
+      ...invocation, operationId: "tool:turn_1:0:2",
+    }, undefined, { agent_session_id: "not-a-session" }));
+    expect(malformedClaim.status).toBe(401);
+
+    const orphanedSubject = await handler(await signedRequest(signing.privateKey, {
+      ...invocation, operationId: "tool:turn_1:0:3",
+    }, undefined, { subject_id: "opaque-user-1" }));
+    expect(orphanedSubject.status).toBe(401);
+  });
+
   it("supports local execution without an HTTP round trip", async () => {
-    let localIdentity: { sessionId: string | undefined; externalUserId: string | undefined } | undefined;
+    let localIdentity: { sessionId: string | undefined; subjectId: string | undefined; externalUserId: string | undefined } | undefined;
     const add = defineTool<{ left: number; right: number }, number>({
       name: "add",
       revision: "1",
@@ -229,6 +289,7 @@ describe("customer-hosted tools", () => {
       execute(input, context) {
         localIdentity = {
           sessionId: context.sessionId,
+          subjectId: context.subjectId,
           externalUserId: context.externalUserId,
         };
         return input.left + input.right;
@@ -237,10 +298,12 @@ describe("customer-hosted tools", () => {
 
     await expect(executeToolLocally(add, { left: 2, right: 3 }, {
       sessionId: "00000000-0000-4000-8000-000000000001",
+      subjectId: "opaque-user-1",
       externalUserId: "customer-user-1",
     })).resolves.toBe(5);
     expect(localIdentity).toEqual({
       sessionId: "00000000-0000-4000-8000-000000000001",
+      subjectId: "opaque-user-1",
       externalUserId: "customer-user-1",
     });
     await expect(executeToolLocally(add, { left: 2.5, right: 3 })).rejects.toMatchObject({

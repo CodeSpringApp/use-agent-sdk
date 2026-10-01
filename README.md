@@ -35,6 +35,33 @@ candidates, fallback, budgets, and policy. Publishing resolves the profile to an
 immutable policy revision while credential rotation remains independent.
 
 API keys are server-only. Do not pass the server client into a browser bundle.
+
+### Partner-hosted workspaces (closed beta)
+
+An enabled partner account can provision a separate workspace for each merchant and give its users delegated Builder access without creating CodeSpring subscriptions for them. Keep the partner key on your backend:
+
+```ts
+import { createPartnerClient } from "@codespring-app/use-agent/partner";
+
+const partner = createPartnerClient({ apiKey: process.env.CODESPRING_PARTNER_KEY! });
+const workspace = await partner.workspaces.create({
+  externalCustomerId: "merchant-123",
+  displayName: "Merchant 123",
+  idempotencyKey: "merchant-123-create",
+});
+await partner.members.upsert(workspace.workspaceId, {
+  externalUserId: "user-456",
+  role: "builder",
+});
+const launch = await partner.builder.createSession(workspace.workspaceId, {
+  externalUserId: "user-456",
+  environmentId: workspace.environments.find(item => item.kind === "development")!.id,
+});
+// Redirect the authenticated merchant user to launch.launchUrl from your server.
+```
+
+Workspace suspension and member suspension revoke new access. `partner.agents.clone` creates a draft from an immutable revision. Cross-workspace clones require a destination model profile and reject source capabilities that need remapping. Hosted runtime tokens and AI testing are disabled until hard quota admission and customer-rated usage are available. The billing and policy API described in the platform RFCs is not live yet.
+
 The runtime signs its session ID and, when present, its opaque authenticated
 subject into each customer-hosted tool authorization. The verified handler
 exposes these as `context.sessionId` and `context.subjectId`. Bind the session

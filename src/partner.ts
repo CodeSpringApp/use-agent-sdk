@@ -53,6 +53,7 @@ export type PartnerSubject = {
   externalUserId: string;
   status: "active" | "suspended";
   version: number;
+  generation: number;
   membershipCount: number;
   createdAt: string;
   updatedAt: string;
@@ -150,6 +151,11 @@ export function createPartnerClient(options: PartnerClientOptions) {
       suspend(partnerSubjectId: string, expectedVersion: number) {
         return request<PartnerSubjectDetail>(
           `/subjects/${encodeURIComponent(partnerSubjectId)}/suspend`,
+          { method: "POST", body: { expectedVersion } });
+      },
+      resume(partnerSubjectId: string, expectedVersion: number) {
+        return request<PartnerSubjectDetail>(
+          `/subjects/${encodeURIComponent(partnerSubjectId)}/resume`,
           { method: "POST", body: { expectedVersion } });
       },
     },

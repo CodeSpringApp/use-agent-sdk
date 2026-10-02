@@ -91,7 +91,7 @@ describe("partner SDK", () => {
     expect(await requests[1]?.json()).toMatchObject({ version: 1, modelProfileId: "merchant-model" });
   });
 
-  it("lists account subjects and suspends one with a version check", async () => {
+  it("lists account subjects and changes status with a version check", async () => {
     const requests: Request[] = [];
     const client = createPartnerClient({ apiKey: key, endpoint: "https://api.example.test",
       fetch: async (input, init) => {
@@ -101,11 +101,14 @@ describe("partner SDK", () => {
     await client.subjects.list({ externalUserId: "user/7", limit: 20 });
     await client.subjects.get("ps_123");
     await client.subjects.suspend("ps_123", 1);
+    await client.subjects.resume("ps_123", 2);
     expect(requests.map(item => item.url)).toEqual([
       "https://api.example.test/v1/partner/subjects?externalUserId=user%2F7&limit=20",
       "https://api.example.test/v1/partner/subjects/ps_123",
       "https://api.example.test/v1/partner/subjects/ps_123/suspend",
+      "https://api.example.test/v1/partner/subjects/ps_123/resume",
     ]);
     expect(await requests[2]?.json()).toEqual({ expectedVersion: 1 });
+    expect(await requests[3]?.json()).toEqual({ expectedVersion: 2 });
   });
 });

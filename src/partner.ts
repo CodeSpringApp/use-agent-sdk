@@ -2,7 +2,22 @@
 export type PartnerScope =
   | "partner:workspaces:read" | "partner:workspaces:write"
   | "partner:users:read" | "partner:users:write"
-  | "partner:builder:delegate" | "partner:agents:clone";
+  | "partner:builder:delegate" | "partner:agents:clone"
+  | "partner:policies:read" | "partner:policies:write";
+
+export type HostedWorkspaceLimits = {
+  workspaceId: string; version: number; accountMaxDailyTurns: number;
+  maxDailyTurns: number; defaultMemberMaxDailyTurns: number;
+};
+export type HostedMemberLimits = {
+  membershipId: string; workspaceId: string; externalUserId: string;
+  version: number; maxDailyTurns: number | null; effectiveMaxDailyTurns: number;
+};
+export type HostedTurnBalance = {
+  workspaceId: string; membershipId: string | null; utcDay: string; asOf: string;
+  balances: Array<{ scope: "account" | "workspace" | "member";
+    limit: number; reserved: number; consumed: number; remaining: number }>;
+};
 
 export type HostedWorkspace = {
   workspaceId: string;
@@ -94,6 +109,31 @@ export function createPartnerClient(options: PartnerClientOptions) {
       },
       suspend(workspaceId: string, memberId: string) {
         return request<HostedMember>(`${workspacePath(workspaceId)}/members/${encodeURIComponent(memberId)}/suspend`, { method: "POST" });
+      },
+    },
+    limits: {
+      get(workspaceId: string) {
+        return request<HostedWorkspaceLimits>(`${workspacePath(workspaceId)}/limits`);
+      },
+      update(workspaceId: string, input: {
+        expectedVersion: number; maxDailyTurns: number; defaultMemberMaxDailyTurns: number;
+      }) {
+        return request<HostedWorkspaceLimits>(`${workspacePath(workspaceId)}/limits`, { method: "PUT", body: input });
+      },
+      balance(workspaceId: string) {
+        return request<HostedTurnBalance>(`${workspacePath(workspaceId)}/limits/balance`);
+      },
+      getMember(workspaceId: string, memberId: string) {
+        return request<HostedMemberLimits>(`${workspacePath(workspaceId)}/members/${encodeURIComponent(memberId)}/limits`);
+      },
+      updateMember(workspaceId: string, memberId: string, input: {
+        expectedVersion: number; maxDailyTurns: number | null;
+      }) {
+        return request<HostedMemberLimits>(`${workspacePath(workspaceId)}/members/${encodeURIComponent(memberId)}/limits`,
+          { method: "PUT", body: input });
+      },
+      memberBalance(workspaceId: string, memberId: string) {
+        return request<HostedTurnBalance>(`${workspacePath(workspaceId)}/members/${encodeURIComponent(memberId)}/limits/balance`);
       },
     },
     builder: {

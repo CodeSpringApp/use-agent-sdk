@@ -60,7 +60,7 @@ const launch = await partner.builder.createSession(workspace.workspaceId, {
 // Redirect the authenticated merchant user to launch.launchUrl from your server.
 ```
 
-Workspace suspension and member suspension revoke new access. `partner.agents.clone` creates a draft from an immutable revision. Cross-workspace clones require a destination model profile and reject source capabilities that need remapping. Hosted runtime tokens and AI testing are disabled until hard quota admission and customer-rated usage are available. The billing and policy API described in the platform RFCs is not live yet.
+Workspace suspension and member suspension revoke new access. `partner.agents.clone` creates a draft from an immutable revision. Cross-workspace clones require a destination model profile and reject source capabilities that need remapping. An operator sets the account daily turn ceiling, then `partner.limits.update` and `partner.limits.updateMember` set narrower versioned daily turn limits. `partner.limits.balance` and `partner.limits.memberBalance` show reserved, consumed, and remaining turns. New accounts and workspaces start with zero turns. Hosted runtime tokens and AI testing are disabled until this admission ledger is wired into every execution path and customer-rated usage is available. The broader spending, billing, and personal capability APIs described in the platform RFCs are not live yet.
 
 The runtime signs its session ID and, when present, its opaque authenticated
 subject into each customer-hosted tool authorization. The verified handler

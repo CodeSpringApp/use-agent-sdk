@@ -49,4 +49,20 @@ describe("partner SDK", () => {
     expect(await request?.json()).toMatchObject({ sourceWorkspaceId: "source-workspace",
       sourceRevisionId: "source@1", modelProfileId: "destination-model" });
   });
+
+  it("updates limits with a version and reads the member balance", async () => {
+    const requests: Request[] = [];
+    const client = createPartnerClient({ apiKey: key, endpoint: "https://api.example.test",
+      fetch: async (input, init) => {
+        requests.push(new Request(input, init));
+        return Response.json({ workspaceId: "merchant", version: 2 });
+      } });
+    await client.limits.update("merchant", { expectedVersion: 1, maxDailyTurns: 12,
+      defaultMemberMaxDailyTurns: 2 });
+    await client.limits.memberBalance("merchant", "member/7");
+    expect(requests[0]?.method).toBe("PUT");
+    expect(await requests[0]?.json()).toEqual({ expectedVersion: 1, maxDailyTurns: 12,
+      defaultMemberMaxDailyTurns: 2 });
+    expect(requests[1]?.url).toBe("https://api.example.test/v1/partner/workspaces/merchant/members/member%2F7/limits/balance");
+  });
 });

@@ -102,13 +102,25 @@ describe("partner SDK", () => {
     await client.subjects.get("ps_123");
     await client.subjects.suspend("ps_123", 1);
     await client.subjects.resume("ps_123", 2);
+    await client.provisioning.get();
+    await client.provisioning.getWorkspace("wsp_123");
+    await client.subjects.erase("ps_123", {
+      expectedVersion: 3, operationId: "00000000-0000-4000-8000-000000000001",
+    });
+    await client.subjects.erasureStatus("ps_123");
     expect(requests.map(item => item.url)).toEqual([
       "https://api.example.test/v1/partner/subjects?externalUserId=user%2F7&limit=20",
       "https://api.example.test/v1/partner/subjects/ps_123",
       "https://api.example.test/v1/partner/subjects/ps_123/suspend",
       "https://api.example.test/v1/partner/subjects/ps_123/resume",
+      "https://api.example.test/v1/partner/provisioning",
+      "https://api.example.test/v1/partner/workspaces/wsp_123/provisioning",
+      "https://api.example.test/v1/partner/subjects/ps_123/erase",
+      "https://api.example.test/v1/partner/subjects/ps_123/erasure",
     ]);
     expect(await requests[2]?.json()).toEqual({ expectedVersion: 1 });
     expect(await requests[3]?.json()).toEqual({ expectedVersion: 2 });
+    expect(await requests[6]?.json()).toEqual({ expectedVersion: 3,
+      operationId: "00000000-0000-4000-8000-000000000001" });
   });
 });

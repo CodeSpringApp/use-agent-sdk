@@ -1,7 +1,7 @@
 /** Server-only CodeSpring partner administration client. Never bundle the key in a browser. */
 export type PartnerScope =
   | "partner:workspaces:read" | "partner:workspaces:write"
-  | "partner:users:read" | "partner:users:write"
+  | "partner:users:read" | "partner:users:write" | "partner:users:erase"
   | "partner:builder:delegate" | "partner:agents:clone"
   | "partner:policies:read" | "partner:policies:write"
   | "partner:templates:read" | "partner:templates:write";
@@ -40,21 +40,22 @@ export type HostedMember = {
   membershipId: string;
   subjectId: string;
   partnerSubjectId: string;
-  externalUserId: string;
+  externalUserId: string | null;
   displayName: string | null;
   role: "end_user" | "viewer" | "builder" | "publisher" | "admin";
-  status: "active" | "suspended";
+  status: "active" | "suspended" | "erased";
   membershipVersion: number;
   createdAt: string;
   updatedAt: string;
 };
 export type PartnerSubject = {
   partnerSubjectId: string;
-  externalUserId: string;
-  status: "active" | "suspended";
+  externalUserId: string | null;
+  status: "active" | "suspended" | "erased";
   version: number;
   generation: number;
   membershipCount: number;
+  erasedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -62,6 +63,25 @@ export type PartnerSubjectDetail = PartnerSubject & {
   memberships: Array<{ workspaceId: string; membershipId: string;
     workspaceSubjectId: string; role: HostedMember["role"];
     status: HostedMember["status"]; membershipVersion: number }>;
+};
+export type PartnerProvisioning = {
+  utcDay: string;
+  maxSubjects: number;
+  maxMembersPerWorkspace: number;
+  maxNewSubjectsPerDay: number;
+  maxNewMembersPerDay: number;
+  subjectCount: number;
+  newSubjectsToday: number;
+  newMembersToday: number;
+};
+export type WorkspaceProvisioning = {
+  workspaceId: string; maxMembers: number; memberCount: number;
+};
+export type PartnerSubjectErasure = {
+  operationId: string; partnerSubjectId: string;
+  status: "pending" | "processing" | "completed" | "attention";
+  sessionsErased: number; lastError: string | null;
+  requestedAt: string; updatedAt: string; completedAt: string | null;
 };
 export type PartnerClientOptions = {
   apiKey: string;
@@ -157,6 +177,21 @@ export function createPartnerClient(options: PartnerClientOptions) {
         return request<PartnerSubjectDetail>(
           `/subjects/${encodeURIComponent(partnerSubjectId)}/resume`,
           { method: "POST", body: { expectedVersion } });
+      },
+      erase(partnerSubjectId: string, input: { expectedVersion: number; operationId: string }) {
+        return request<PartnerSubjectErasure>(
+          `/subjects/${encodeURIComponent(partnerSubjectId)}/erase`,
+          { method: "POST", body: input });
+      },
+      erasureStatus(partnerSubjectId: string) {
+        return request<PartnerSubjectErasure>(
+          `/subjects/${encodeURIComponent(partnerSubjectId)}/erasure`);
+      },
+    },
+    provisioning: {
+      get() { return request<PartnerProvisioning>("/provisioning"); },
+      getWorkspace(workspaceId: string) {
+        return request<WorkspaceProvisioning>(`${workspacePath(workspaceId)}/provisioning`);
       },
     },
     limits: {

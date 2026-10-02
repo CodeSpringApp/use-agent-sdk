@@ -90,4 +90,22 @@ describe("partner SDK", () => {
     expect(requests[1]?.url).toBe("https://api.example.test/v1/partner/workspaces/merchant/templates/research-helper/install");
     expect(await requests[1]?.json()).toMatchObject({ version: 1, modelProfileId: "merchant-model" });
   });
+
+  it("lists account subjects and suspends one with a version check", async () => {
+    const requests: Request[] = [];
+    const client = createPartnerClient({ apiKey: key, endpoint: "https://api.example.test",
+      fetch: async (input, init) => {
+        requests.push(new Request(input, init));
+        return Response.json({ partnerSubjectId: "ps_123", version: 2 });
+      } });
+    await client.subjects.list({ externalUserId: "user/7", limit: 20 });
+    await client.subjects.get("ps_123");
+    await client.subjects.suspend("ps_123", 1);
+    expect(requests.map(item => item.url)).toEqual([
+      "https://api.example.test/v1/partner/subjects?externalUserId=user%2F7&limit=20",
+      "https://api.example.test/v1/partner/subjects/ps_123",
+      "https://api.example.test/v1/partner/subjects/ps_123/suspend",
+    ]);
+    expect(await requests[2]?.json()).toEqual({ expectedVersion: 1 });
+  });
 });

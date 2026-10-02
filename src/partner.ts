@@ -39,6 +39,7 @@ export type HostedWorkspace = {
 export type HostedMember = {
   membershipId: string;
   subjectId: string;
+  partnerSubjectId: string;
   externalUserId: string;
   displayName: string | null;
   role: "end_user" | "viewer" | "builder" | "publisher" | "admin";
@@ -46,6 +47,20 @@ export type HostedMember = {
   membershipVersion: number;
   createdAt: string;
   updatedAt: string;
+};
+export type PartnerSubject = {
+  partnerSubjectId: string;
+  externalUserId: string;
+  status: "active" | "suspended";
+  version: number;
+  membershipCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+export type PartnerSubjectDetail = PartnerSubject & {
+  memberships: Array<{ workspaceId: string; membershipId: string;
+    workspaceSubjectId: string; role: HostedMember["role"];
+    status: HostedMember["status"]; membershipVersion: number }>;
 };
 export type PartnerClientOptions = {
   apiKey: string;
@@ -118,6 +133,24 @@ export function createPartnerClient(options: PartnerClientOptions) {
       },
       suspend(workspaceId: string, memberId: string) {
         return request<HostedMember>(`${workspacePath(workspaceId)}/members/${encodeURIComponent(memberId)}/suspend`, { method: "POST" });
+      },
+    },
+    subjects: {
+      list(input: { externalUserId?: string; limit?: number; cursor?: string } = {}) {
+        const query = new URLSearchParams();
+        if (input.externalUserId !== undefined) query.set("externalUserId", input.externalUserId);
+        if (input.limit !== undefined) query.set("limit", String(input.limit));
+        if (input.cursor) query.set("cursor", input.cursor);
+        return request<{ data: PartnerSubject[]; cursor: string | null }>(
+          `/subjects${query.size ? `?${query}` : ""}`);
+      },
+      get(partnerSubjectId: string) {
+        return request<PartnerSubjectDetail>(`/subjects/${encodeURIComponent(partnerSubjectId)}`);
+      },
+      suspend(partnerSubjectId: string, expectedVersion: number) {
+        return request<PartnerSubjectDetail>(
+          `/subjects/${encodeURIComponent(partnerSubjectId)}/suspend`,
+          { method: "POST", body: { expectedVersion } });
       },
     },
     limits: {

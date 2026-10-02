@@ -120,6 +120,9 @@ export interface ToolHandlerOptions {
   executionStore: ToolExecutionStore;
   /** Recheck application access on every signed delivery and replay; input is a frozen copy of validated arguments. */
   authorize?: (context: ToolExecutionContext, input: Readonly<Record<string, unknown>>) => void | Promise<void>;
+  /** Recheck access to records named only in a successful result, including cached replays. */
+  authorizeResult?: (context: ToolExecutionContext, input: Readonly<Record<string, unknown>>,
+    output: unknown) => void | Promise<void>;
   issuer?: string;
   jwksUrl?: string;
   jwks?: JSONWebKeySet;
@@ -293,8 +296,9 @@ export function createToolHandler(
       return resultResponse(failureResult(invocation.operationId, error));
     }
 
+    let result: CustomerToolResult;
     try {
-      const result = await options.executionStore.run(scopedOperationKey(invocation), async () => {
+      result = validateStoredResult(await options.executionStore.run(scopedOperationKey(invocation), async () => {
         try {
           const output = await tool.execute(input, context);
           return {
@@ -305,8 +309,7 @@ export function createToolHandler(
         } catch (error) {
           return failureResult(invocation.operationId, error);
         }
-      });
-      return resultResponse(validateStoredResult(result, invocation.operationId));
+      }), invocation.operationId);
     } catch {
       return resultResponse({
         ok: false,
@@ -318,6 +321,15 @@ export function createToolHandler(
         },
       }, 503);
     }
+    if (result.ok && options.authorizeResult) {
+      try {
+        await options.authorizeResult(context, deepFreeze(structuredClone(input)),
+          deepFreeze(structuredClone(result.output)));
+      } catch (error) {
+        return resultResponse(failureResult(invocation.operationId, error));
+      }
+    }
+    return resultResponse(result);
   };
 }
 

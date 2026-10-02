@@ -64,6 +64,8 @@ Workspace suspension and member suspension revoke new access. `partner.agents.cl
 
 `partner.templates.publish` snapshots a reviewed, portable agent revision as an immutable partner-private template version. The source must not have tool, MCP, skill, knowledge, voice, or asset bindings. `partner.templates.list` and `get` read versions, and `partner.templates.install` creates a new unpublished draft in a hosted development workspace using its own saved model profile. The template contains no source model ID or credential. Review instructions for private content before publishing.
 
+For partner-owned personal memory, `@codespring-app/use-agent/partner/tools` exports `createUserMemoryTools`. It creates a signed tool handler and the `search_my_memory` and `propose_my_memory` tool definitions. The partner resolves a live subject from the signed session and owns the search, proposal, approval, deletion, and storage paths. Search results carry exact record revisions; the handler calls `store.assertReadable` before returning each result, including cached replays. `propose_my_memory` creates only a pending proposal. The partner application must confirm exact content with the user before saving it. Keep the execution store durable in production and enforce item count, storage, retention, and write quotas in the partner store.
+
 The runtime signs its session ID and, when present, its opaque authenticated
 subject into each customer-hosted tool authorization. The verified handler
 exposes these as `context.sessionId` and `context.subjectId`. Bind the session
@@ -72,6 +74,14 @@ to an application user and resource on your server. The handler's
 current access on every signed delivery, including stored-result replay. The
 opaque subject is scoped to the tenant and environment; it is not an
 application user ID.
+
+For searches that return personal or other revocable records, also set
+`authorizeResult(context, input, output)`. The handler calls it on every
+successful delivery, including cached replay, so the application can recheck
+IDs found only in the result before any result is returned. Both input and
+output are frozen copies. A denied check returns a tool error without exposing
+the cached output. The application must look up current permissions in its own
+store; the hook does not create or manage personal memory.
 
 For compatibility, sessions created with `externalUserId` still expose
 `context.externalUserId`. Create these sessions from an authenticated server

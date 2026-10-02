@@ -8,6 +8,7 @@ import {
   executeToolLocally,
   type CustomerToolInvocation,
 } from "../src";
+import { createUserMemoryTools } from "../src/partner-tools";
 
 const endpoint = "https://customer.example.com/api/agent-tools";
 const issuer = "https://runtime.example.com";
@@ -279,6 +280,131 @@ describe("customer-hosted tools", () => {
     expect(authorizations).toBe(3);
     expect(stores).toBe(2);
     expect(executions).toBe(1);
+  });
+
+  it("rechecks records found only in a cached result before each delivery", async () => {
+    const signing = await signingFixture();
+    const availableRecords = new Set(["private-note-1"]);
+    let executions = 0;
+    let resultChecks = 0;
+    const search = defineTool<Record<string, never>, { items: { id: string; text: string }[] }>({
+      name: "search_notes", revision: "1", description: "Search personal notes.",
+      inputSchema: { type: "object", properties: {}, required: [], additionalProperties: false },
+      execute() {
+        executions += 1;
+        return { items: [{ id: "private-note-1", text: "Private content" }] };
+      },
+    });
+    const handler = createToolHandler({
+      endpoint, issuer, jwks: signing.jwks,
+      tools: [search], executionStore: createMemoryToolExecutionStore(),
+      authorizeResult(context, input, output) {
+        resultChecks += 1;
+        expect(context.subjectId).toBe("opaque-actor");
+        expect(input).toEqual({});
+        const items = (output as { items: { id: string; text: string }[] }).items;
+        expect(Object.isFrozen(items)).toBe(true);
+        if (items.some(item => !availableRecords.has(item.id)))
+          throw new CustomerToolError("memory_access_revoked", "Memory access is unavailable");
+      },
+    });
+    const invocation = { ...fixtureInvocation(), toolId: "search-notes",
+      toolRevisionId: "search-notes@1", toolName: "search_notes", handlerRevision: "1", input: {} };
+    const claims = { agent_session_id: "00000000-0000-4000-8000-000000000001",
+      subject_id: "opaque-actor" };
+    const first = await handler(await signedRequest(signing.privateKey, invocation, invocation, claims));
+    expect(await first.json()).toMatchObject({ ok: true,
+      output: { items: [{ id: "private-note-1", text: "Private content" }] } });
+    availableRecords.clear();
+    const replay = await handler(await signedRequest(signing.privateKey, invocation, invocation, claims));
+    expect(await replay.json()).toMatchObject({ ok: false,
+      error: { code: "memory_access_revoked" } });
+    expect(executions).toBe(1);
+    expect(resultChecks).toBe(2);
+  });
+
+  it("keeps partner memory subject scoped and fences stale search revisions", async () => {
+    const signing = await signingFixture();
+    let activeRevision = "2";
+    let proposalVisible = true;
+    let resolvedWorkspace = "tenant_1";
+    let searches = 0;
+    let proposals = 0;
+    const memory = createUserMemoryTools({
+      endpoint, issuer, jwks: signing.jwks, revision: "1",
+      executionStore: createMemoryToolExecutionStore(),
+      async resolveSubject(context) {
+        return { accountId: "partner-1", workspaceId: resolvedWorkspace,
+          subjectId: context.subjectId ?? "" };
+      },
+      store: {
+        async search({ namespace, query }) {
+          searches += 1;
+          expect(namespace).toEqual({ accountId: "partner-1", workspaceId: "tenant_1",
+            subjectId: "opaque-actor" });
+          expect(query).toBe("project");
+          return [{ id: "note-1", revision: "2", content: "Private project note" }];
+        },
+        async assertReadable({ namespace, records }) {
+          expect(namespace.subjectId).toBe("opaque-actor");
+          if (records.some(item => item.revision !== activeRevision))
+            throw new CustomerToolError("memory_revision_revoked", "Memory access is unavailable");
+        },
+        async propose({ namespace, content }) {
+          proposals += 1;
+          expect(namespace.subjectId).toBe("opaque-actor");
+          expect(content).toBe("Keep this fact");
+          return { proposalId: "proposal-1" };
+        },
+        async assertProposalVisible({ namespace, proposalId }) {
+          expect(namespace.subjectId).toBe("opaque-actor");
+          expect(proposalId).toBe("proposal-1");
+          if (!proposalVisible)
+            throw new CustomerToolError("memory_proposal_revoked", "Memory access is unavailable");
+        },
+      },
+    });
+    expect(memory.tools.map(tool => tool.name)).toEqual(["search_my_memory", "propose_my_memory"]);
+    const searchInvocation = { ...fixtureInvocation(), toolId: "personal-search",
+      toolRevisionId: "personal-search@1", toolName: "search_my_memory",
+      handlerRevision: "1", input: { query: "project" } };
+    const claims = { agent_session_id: "00000000-0000-4000-8000-000000000001",
+      subject_id: "opaque-actor" };
+    const first = await memory.handler(await signedRequest(signing.privateKey,
+      searchInvocation, searchInvocation, claims));
+    expect(await first.json()).toMatchObject({ ok: true,
+      output: { items: [{ id: "note-1", revision: "2", content: "Private project note" }] } });
+    activeRevision = "3";
+    const replay = await memory.handler(await signedRequest(signing.privateKey,
+      searchInvocation, searchInvocation, claims));
+    expect(await replay.json()).toMatchObject({ ok: false,
+      error: { code: "memory_revision_revoked" } });
+    expect(searches).toBe(1);
+    const unbound = await memory.handler(await signedRequest(signing.privateKey,
+      { ...searchInvocation, operationId: "tool:turn_1:0:3" }));
+    expect(await unbound.json()).toMatchObject({ ok: false,
+      error: { code: "memory_subject_required" } });
+    expect(searches).toBe(1);
+    const proposeInvocation = { ...searchInvocation, operationId: "tool:turn_1:0:4",
+      toolId: "personal-propose", toolRevisionId: "personal-propose@1",
+      toolName: "propose_my_memory", input: { content: "Keep this fact" } };
+    const proposal = await memory.handler(await signedRequest(signing.privateKey,
+      proposeInvocation, proposeInvocation, claims));
+    expect(await proposal.json()).toMatchObject({ ok: true,
+      output: { proposalId: "proposal-1", status: "pending_confirmation" } });
+    proposalVisible = false;
+    const proposalReplay = await memory.handler(await signedRequest(signing.privateKey,
+      proposeInvocation, proposeInvocation, claims));
+    expect(await proposalReplay.json()).toMatchObject({ ok: false,
+      error: { code: "memory_proposal_revoked" } });
+    resolvedWorkspace = "another-workspace";
+    const wrongWorkspace = await memory.handler(await signedRequest(signing.privateKey,
+      { ...searchInvocation, operationId: "tool:turn_1:0:5" }, undefined,
+      claims));
+    expect(await wrongWorkspace.json()).toMatchObject({ ok: false,
+      error: { code: "memory_access_denied" } });
+    expect(searches).toBe(1);
+    expect(proposals).toBe(1);
   });
 
   it("rejects signed invalid input before calling authorization or the execution store", async () => {

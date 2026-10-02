@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { createPartnerClient, PartnerApiError } from "../src/partner";
+import { createPartnerClient, completePartnerDataErasure, PartnerApiError } from "../src/partner";
 
 const key = `ua_partner_${"a".repeat(32)}_${"b".repeat(43)}`;
 
@@ -108,6 +108,11 @@ describe("partner SDK", () => {
       expectedVersion: 3, operationId: "00000000-0000-4000-8000-000000000001",
     });
     await client.subjects.erasureStatus("ps_123");
+    await client.subjects.erasureManifest("ps_123",{cursor:"opaque",limit:50});
+    await client.subjects.acknowledgePartnerCleanup("ps_123",{
+      operationId:"00000000-0000-4000-8000-000000000001",
+      memory:"completed",integrations:"not_applicable",
+    });
     expect(requests.map(item => item.url)).toEqual([
       "https://api.example.test/v1/partner/subjects?externalUserId=user%2F7&limit=20",
       "https://api.example.test/v1/partner/subjects/ps_123",
@@ -117,10 +122,88 @@ describe("partner SDK", () => {
       "https://api.example.test/v1/partner/workspaces/wsp_123/provisioning",
       "https://api.example.test/v1/partner/subjects/ps_123/erase",
       "https://api.example.test/v1/partner/subjects/ps_123/erasure",
+      "https://api.example.test/v1/partner/subjects/ps_123/erasure/manifest?cursor=opaque&limit=50",
+      "https://api.example.test/v1/partner/subjects/ps_123/erasure/partner-cleanup",
     ]);
     expect(await requests[2]?.json()).toEqual({ expectedVersion: 1 });
     expect(await requests[3]?.json()).toEqual({ expectedVersion: 2 });
     expect(await requests[6]?.json()).toEqual({ expectedVersion: 3,
       operationId: "00000000-0000-4000-8000-000000000001" });
+    expect(await requests[9]?.json()).toEqual({
+      operationId:"00000000-0000-4000-8000-000000000001",
+      memory:"completed",integrations:"not_applicable",
+    });
+  });
+
+  it("sends bounded provisioning controls, batch items, and explicit JIT intent", async () => {
+    const requests:Request[] = [];
+    const client = createPartnerClient({apiKey:key,endpoint:"https://api.example.test",
+      fetch:async (input,init) => {
+        requests.push(new Request(input,init));
+        return Response.json({results:[],succeeded:0,failed:0});
+      }});
+    await client.provisioning.update({expectedVersion:1,maxSubjects:100,
+      maxMembersPerWorkspace:25,maxNewSubjectsPerDay:10,maxNewMembersPerDay:50});
+    await client.provisioning.updateWorkspace("workspace/1",{
+      expectedVersion:1,maxMembers:10,autoProvisionEndUsers:true});
+    await client.members.upsertBatch("workspace/1",[
+      {operationId:"00000000-0000-4000-8000-000000000001",
+        externalUserId:"user/1",role:"end_user"},
+    ]);
+    await client.runtime.createClientToken("workspace/1",{
+      externalUserId:"user/1",environmentId:"development",
+      allowedAgentIds:["agent@1"],origin:"https://example.com",
+      provisionIfMissing:true,
+    });
+    expect(requests.map(request => `${request.method} ${new URL(request.url).pathname}`)).toEqual([
+      "PUT /v1/partner/provisioning",
+      "PUT /v1/partner/workspaces/workspace%2F1/provisioning",
+      "POST /v1/partner/workspaces/workspace%2F1/members/batch",
+      "POST /v1/partner/workspaces/workspace%2F1/client-tokens",
+    ]);
+    expect(await requests[2]?.json()).toEqual({items:[{operationId:
+      "00000000-0000-4000-8000-000000000001",externalUserId:"user/1",role:"end_user"}]});
+    expect(await requests[3]?.json()).toMatchObject({provisionIfMissing:true});
+  });
+
+  it("acknowledges partner cleanup only after both idempotent callbacks finish",async () => {
+    const paths:string[] = [];
+    const client = createPartnerClient({apiKey:key,endpoint:"https://api.example.test",
+      fetch:async (input,init) => {
+        const request = new Request(input,init);
+        paths.push(`${request.method} ${new URL(request.url).pathname}${new URL(request.url).search}`);
+        if (request.method === "POST") return Response.json({status:"completed",
+          partnerCleanup:{memory:"completed",integrations:"completed"}});
+        const cursor = new URL(request.url).searchParams.get("cursor");
+        return Response.json({operationId:"00000000-0000-4000-8000-000000000001",
+          partnerSubjectId:"ps_1",items:[{accountId:"acc_1",workspaceId:"w_1",
+            subjectId:cursor ? "sub_2" : "sub_1"}],cursor:cursor ? null : "page-2"});
+      }});
+    const observed:string[] = [];
+    const result = await completePartnerDataErasure(client,"ps_1",{
+      memory:async ({namespaces}) => {for await (const item of namespaces)
+        observed.push(`memory:${item.subjectId}`);},
+      integrations:async ({namespaces}) => {for await (const item of namespaces)
+        observed.push(`integrations:${item.subjectId}`);},
+    });
+    expect(observed).toEqual(["memory:sub_1","memory:sub_2",
+      "integrations:sub_1","integrations:sub_2"]);
+    expect(paths.at(-1)).toBe("POST /v1/partner/subjects/ps_1/erasure/partner-cleanup");
+    expect(result.partnerCleanup).toMatchObject({memory:"completed",integrations:"completed"});
+  });
+
+  it("leaves partner cleanup unacknowledged when deletion fails",async () => {
+    let acknowledgments = 0;
+    const client = createPartnerClient({apiKey:key,fetch:async (input,init) => {
+      const request = new Request(input,init);
+      if (request.method === "POST") acknowledgments += 1;
+      return Response.json({operationId:"00000000-0000-4000-8000-000000000001",
+        partnerSubjectId:"ps_1",items:[],cursor:null});
+    }});
+    await expect(completePartnerDataErasure(client,"ps_1",{
+      memory:async () => {throw new Error("store unavailable");},
+      integrations:"not_applicable",
+    })).rejects.toThrow("store unavailable");
+    expect(acknowledgments).toBe(0);
   });
 });

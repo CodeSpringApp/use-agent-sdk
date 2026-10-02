@@ -66,6 +66,7 @@ export type PartnerSubjectDetail = PartnerSubject & {
 };
 export type PartnerProvisioning = {
   utcDay: string;
+  version: number;
   maxSubjects: number;
   maxMembersPerWorkspace: number;
   maxNewSubjectsPerDay: number;
@@ -73,15 +74,34 @@ export type PartnerProvisioning = {
   subjectCount: number;
   newSubjectsToday: number;
   newMembersToday: number;
+  operatorCeilings: { maxSubjects:number;maxMembersPerWorkspace:number;
+    maxNewSubjectsPerDay:number;maxNewMembersPerDay:number };
+  configuredLimits: { maxSubjects:number|null;maxMembersPerWorkspace:number|null;
+    maxNewSubjectsPerDay:number|null;maxNewMembersPerDay:number|null };
 };
 export type WorkspaceProvisioning = {
-  workspaceId: string; maxMembers: number; memberCount: number;
+  workspaceId: string; version:number; maxMembers: number; memberCount: number;
+  accountMaxMembers:number;operatorMaxMembers:number;configuredMaxMembers:number|null;
+  autoProvisionEndUsers:boolean;
 };
+export type MemberBatchResult = { results:Array<
+  {operationId:string;status:"ok";member:HostedMember} |
+  {operationId:string;status:"error";error:{code:string;message:string}}>;
+  succeeded:number;failed:number };
 export type PartnerSubjectErasure = {
   operationId: string; partnerSubjectId: string;
   status: "pending" | "processing" | "completed" | "attention";
   sessionsErased: number; lastError: string | null;
+  partnerCleanup:{memory:"completed"|"not_applicable"|null;
+    integrations:"completed"|"not_applicable"|null;acknowledgedAt:string|null};
   requestedAt: string; updatedAt: string; completedAt: string | null;
+};
+export type PartnerErasureNamespace = {
+  accountId:string;workspaceId:string;subjectId:string;
+};
+export type PartnerErasureManifest = {
+  operationId:string;partnerSubjectId:string;
+  items:PartnerErasureNamespace[];cursor:string|null;
 };
 export type PartnerClientOptions = {
   apiKey: string;
@@ -149,6 +169,11 @@ export function createPartnerClient(options: PartnerClientOptions) {
       upsert(workspaceId: string, input: { externalUserId: string; role: HostedMember["role"]; displayName?: string }) {
         return request<HostedMember>(`${workspacePath(workspaceId)}/members`, { method: "POST", body: input });
       },
+      upsertBatch(workspaceId:string,items:Array<{operationId:string;externalUserId:string;
+        role:HostedMember["role"];displayName?:string}>) {
+        return request<MemberBatchResult>(`${workspacePath(workspaceId)}/members/batch`,
+          {method:"POST",body:{items}});
+      },
       list(workspaceId: string) {
         return request<{ data: HostedMember[] }>(`${workspacePath(workspaceId)}/members`);
       },
@@ -187,11 +212,35 @@ export function createPartnerClient(options: PartnerClientOptions) {
         return request<PartnerSubjectErasure>(
           `/subjects/${encodeURIComponent(partnerSubjectId)}/erasure`);
       },
+      erasureManifest(partnerSubjectId:string,input:{cursor?:string;limit?:number}={}) {
+        const query = new URLSearchParams();
+        if (input.cursor) query.set("cursor",input.cursor);
+        if (input.limit !== undefined) query.set("limit",String(input.limit));
+        return request<PartnerErasureManifest>(
+          `/subjects/${encodeURIComponent(partnerSubjectId)}/erasure/manifest${query.size ? `?${query}` : ""}`);
+      },
+      acknowledgePartnerCleanup(partnerSubjectId:string,input:{operationId:string;
+        memory:"completed"|"not_applicable";
+        integrations:"completed"|"not_applicable"}) {
+        return request<PartnerSubjectErasure>(
+          `/subjects/${encodeURIComponent(partnerSubjectId)}/erasure/partner-cleanup`,
+          {method:"POST",body:input});
+      },
     },
     provisioning: {
       get() { return request<PartnerProvisioning>("/provisioning"); },
+      update(input:{expectedVersion:number;maxSubjects:number|null;
+        maxMembersPerWorkspace:number|null;maxNewSubjectsPerDay:number|null;
+        maxNewMembersPerDay:number|null}) {
+        return request<PartnerProvisioning>("/provisioning",{method:"PUT",body:input});
+      },
       getWorkspace(workspaceId: string) {
         return request<WorkspaceProvisioning>(`${workspacePath(workspaceId)}/provisioning`);
+      },
+      updateWorkspace(workspaceId:string,input:{expectedVersion:number;maxMembers:number|null;
+        autoProvisionEndUsers:boolean}) {
+        return request<WorkspaceProvisioning>(`${workspacePath(workspaceId)}/provisioning`,
+          {method:"PUT",body:input});
       },
     },
     limits: {
@@ -228,7 +277,7 @@ export function createPartnerClient(options: PartnerClientOptions) {
     runtime: {
       createClientToken(workspaceId: string, input: {
         externalUserId: string; environmentId: string; allowedAgentIds: string[];
-        origin: string; expiresInSeconds?: number;
+        origin: string; expiresInSeconds?: number; provisionIfMissing?:boolean;
       }) {
         return request<{ token: string; expiresAt: string; subjectId: string }>(
           `${workspacePath(workspaceId)}/client-tokens`, { method: "POST", body: input });
@@ -277,4 +326,39 @@ export function createPartnerClient(options: PartnerClientOptions) {
       },
     },
   };
+}
+
+export type PartnerDataErasureHandler = "not_applicable" |
+  ((input:{operationId:string;partnerSubjectId:string;
+    namespaces:AsyncIterable<PartnerErasureNamespace>}) => Promise<void>);
+
+/** Run idempotent partner-owned deletion callbacks before recording their completion. */
+export async function completePartnerDataErasure(
+  client:Pick<ReturnType<typeof createPartnerClient>,"subjects">,
+  partnerSubjectId:string,
+  handlers:{memory:PartnerDataErasureHandler;integrations:PartnerDataErasureHandler},
+):Promise<PartnerSubjectErasure> {
+  const first = await client.subjects.erasureManifest(partnerSubjectId);
+  const operationId = first.operationId;
+  const namespaces = async function* ():AsyncGenerator<PartnerErasureNamespace> {
+    let page = first;
+    const seen = new Set<string>();
+    for (;;) {
+      if (page.operationId !== operationId || page.partnerSubjectId !== partnerSubjectId)
+        throw new Error("Erasure manifest changed during partner cleanup");
+      for (const item of page.items) yield item;
+      if (!page.cursor) return;
+      if (seen.has(page.cursor)) throw new Error("Erasure manifest cursor repeated");
+      seen.add(page.cursor);
+      page = await client.subjects.erasureManifest(partnerSubjectId,{cursor:page.cursor});
+    }
+  };
+  if (handlers.memory !== "not_applicable")
+    await handlers.memory({operationId,partnerSubjectId,namespaces:namespaces()});
+  if (handlers.integrations !== "not_applicable")
+    await handlers.integrations({operationId,partnerSubjectId,namespaces:namespaces()});
+  return client.subjects.acknowledgePartnerCleanup(partnerSubjectId,{
+    operationId,memory:handlers.memory === "not_applicable" ? "not_applicable" : "completed",
+    integrations:handlers.integrations === "not_applicable" ? "not_applicable" : "completed",
+  });
 }

@@ -3,7 +3,16 @@ export type PartnerScope =
   | "partner:workspaces:read" | "partner:workspaces:write"
   | "partner:users:read" | "partner:users:write"
   | "partner:builder:delegate" | "partner:agents:clone"
-  | "partner:policies:read" | "partner:policies:write";
+  | "partner:policies:read" | "partner:policies:write"
+  | "partner:templates:read" | "partner:templates:write";
+
+export type PartnerTemplate = {
+  templateId: string; version: number; title: string; summary: string;
+  category: "support" | "research" | "operations" | "sales" | "custom";
+  icon: "sparkles" | "message-square" | "search" | "workflow" | "briefcase";
+  agent: { description: string; instructions: string; maxModelSteps: number; maxToolCalls: number };
+  contentDigest: string; sourceRevisionId: string; createdAt: string;
+};
 
 export type HostedWorkspaceLimits = {
   workspaceId: string; version: number; accountMaxDailyTurns: number;
@@ -159,6 +168,37 @@ export function createPartnerClient(options: PartnerClientOptions) {
       }) {
         return request<{ agent: { agentId: string; currentRevisionId: string | null }; sourceRevisionId: string }>(
           `${workspacePath(workspaceId)}/agents/${encodeURIComponent(sourceAgentId)}/clone`,
+          { method: "POST", body: input });
+      },
+    },
+    templates: {
+      publish(input: {
+        operationId: string; templateId: string; expectedVersion: number;
+        title: string; summary: string; category: PartnerTemplate["category"];
+        icon: PartnerTemplate["icon"]; sourceWorkspaceId: string;
+        sourceEnvironmentId: string; sourceAgentId: string; sourceRevisionId: string;
+        reviewedPortableContent: true;
+      }) {
+        return request<PartnerTemplate>("/templates", { method: "POST", body: input });
+      },
+      list(input: { limit?: number; cursor?: string } = {}) {
+        const query = new URLSearchParams();
+        if (input.limit !== undefined) query.set("limit", String(input.limit));
+        if (input.cursor) query.set("cursor", input.cursor);
+        return request<{ data: PartnerTemplate[]; cursor: string | null }>(
+          `/templates${query.size ? `?${query}` : ""}`);
+      },
+      get(templateId: string, version?: number) {
+        return request<PartnerTemplate>(`/templates/${encodeURIComponent(templateId)}` +
+          (version === undefined ? "" : `?version=${encodeURIComponent(version)}`));
+      },
+      install(workspaceId: string, templateId: string, input: {
+        operationId: string; version: number; environmentId: string;
+        agentId: string; displayName: string; modelProfileId: string;
+      }) {
+        return request<{ agent: { agentId: string; currentRevisionId: string | null };
+          templateId: string; version: number }>(
+          `${workspacePath(workspaceId)}/templates/${encodeURIComponent(templateId)}/install`,
           { method: "POST", body: input });
       },
     },

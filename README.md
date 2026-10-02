@@ -62,6 +62,8 @@ const launch = await partner.builder.createSession(workspace.workspaceId, {
 
 Workspace suspension and member suspension revoke new access. `partner.agents.clone` creates a draft from an immutable revision. Cross-workspace clones require a destination model profile and reject source capabilities that need remapping. An operator sets the account daily turn ceiling, then `partner.limits.update` and `partner.limits.updateMember` set narrower versioned daily turn limits. `partner.limits.balance` and `partner.limits.memberBalance` show reserved, consumed, and remaining turns. New accounts and workspaces start with zero turns. Session dispatch now checks the turn ledger, but hosted runtime tokens and AI testing remain disabled until customer-rated usage and the other launch gates are complete. The broader spending, billing, and personal capability APIs described in the platform RFCs are not live yet.
 
+`partner.templates.publish` snapshots a reviewed, portable agent revision as an immutable partner-private template version. The source must not have tool, MCP, skill, knowledge, voice, or asset bindings. `partner.templates.list` and `get` read versions, and `partner.templates.install` creates a new unpublished draft in a hosted development workspace using its own saved model profile. The template contains no source model ID or credential. Review instructions for private content before publishing.
+
 The runtime signs its session ID and, when present, its opaque authenticated
 subject into each customer-hosted tool authorization. The verified handler
 exposes these as `context.sessionId` and `context.subjectId`. Bind the session

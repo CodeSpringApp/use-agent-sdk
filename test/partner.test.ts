@@ -65,4 +65,29 @@ describe("partner SDK", () => {
       defaultMemberMaxDailyTurns: 2 });
     expect(requests[1]?.url).toBe("https://api.example.test/v1/partner/workspaces/merchant/members/member%2F7/limits/balance");
   });
+
+  it("publishes a pinned template and installs it with an explicit destination model", async () => {
+    const requests: Request[] = [];
+    const client = createPartnerClient({ apiKey: key, endpoint: "https://api.example.test",
+      fetch: async (input, init) => {
+        requests.push(new Request(input, init));
+        return Response.json({ templateId: "research-helper", version: 1 });
+      } });
+    await client.templates.publish({ operationId: "00000000-0000-4000-8000-000000000001",
+      templateId: "research-helper", expectedVersion: 0, title: "Research helper",
+      summary: "Answers questions", category: "research", icon: "search",
+      sourceWorkspaceId: "source", sourceEnvironmentId: "development",
+      sourceAgentId: "research", sourceRevisionId: "research@1",
+      reviewedPortableContent: true });
+    await client.templates.install("merchant", "research-helper", {
+      operationId: "00000000-0000-4000-8000-000000000002", version: 1,
+      environmentId: "development", agentId: "research-copy", displayName: "Research copy",
+      modelProfileId: "merchant-model",
+    });
+    expect(requests[0]?.url).toBe("https://api.example.test/v1/partner/templates");
+    expect(await requests[0]?.json()).toMatchObject({ sourceRevisionId: "research@1",
+      reviewedPortableContent: true });
+    expect(requests[1]?.url).toBe("https://api.example.test/v1/partner/workspaces/merchant/templates/research-helper/install");
+    expect(await requests[1]?.json()).toMatchObject({ version: 1, modelProfileId: "merchant-model" });
+  });
 });

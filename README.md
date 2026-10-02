@@ -66,6 +66,8 @@ Workspace suspension and member suspension revoke new access. `partner.agents.cl
 
 For partner-owned personal memory, `@codespring-app/use-agent/partner/tools` exports `createUserMemoryTools`. It creates a signed tool handler and the `search_my_memory` and `propose_my_memory` tool definitions. The partner resolves a live subject from the signed session and owns the search, proposal, approval, deletion, and storage paths. Search results carry exact record revisions; the handler calls `store.assertReadable` before returning each result, including cached replays. `propose_my_memory` creates only a pending proposal. The partner application must confirm exact content with the user before saving it. Keep the execution store durable in production and enforce item count, storage, retention, and write quotas in the partner store.
 
+`createUserMemoryService` supports the authenticated partner UI. `getProposal` returns the exact content, revision, personal audience, and digest to display. `confirm` passes the revision, digest, and an operation ID to the partner store for an atomic, idempotent approval and quota check. `list` and `forget` use the same live user resolver and consent check. The partner store must enforce current consent, item and storage limits, daily writes, and tombstones in its own transaction. These methods are server-side building blocks, not browser routes or a hosted memory database.
+
 The runtime signs its session ID and, when present, its opaque authenticated
 subject into each customer-hosted tool authorization. The verified handler
 exposes these as `context.sessionId` and `context.subjectId`. Bind the session

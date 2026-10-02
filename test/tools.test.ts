@@ -328,6 +328,7 @@ describe("customer-hosted tools", () => {
     let activeRevision = "2";
     let proposalVisible = true;
     let resolvedWorkspace = "tenant_1";
+    let memoryEnabled = true;
     let searches = 0;
     let proposals = 0;
     const memory = createUserMemoryTools({
@@ -336,6 +337,11 @@ describe("customer-hosted tools", () => {
       async resolveSubject(context) {
         return { accountId: "partner-1", workspaceId: resolvedWorkspace,
           subjectId: context.subjectId ?? "" };
+      },
+      async authorize({ namespace }) {
+        expect(namespace.subjectId).toBe("opaque-actor");
+        if (!memoryEnabled)
+          throw new CustomerToolError("memory_disabled", "Memory is disabled");
       },
       store: {
         async search({ namespace, query }) {
@@ -380,6 +386,12 @@ describe("customer-hosted tools", () => {
     expect(await replay.json()).toMatchObject({ ok: false,
       error: { code: "memory_revision_revoked" } });
     expect(searches).toBe(1);
+    memoryEnabled = false;
+    const disabled = await memory.handler(await signedRequest(signing.privateKey,
+      searchInvocation, searchInvocation, claims));
+    expect(await disabled.json()).toMatchObject({ ok: false,
+      error: { code: "memory_disabled" } });
+    memoryEnabled = true;
     const unbound = await memory.handler(await signedRequest(signing.privateKey,
       { ...searchInvocation, operationId: "tool:turn_1:0:3" }));
     expect(await unbound.json()).toMatchObject({ ok: false,

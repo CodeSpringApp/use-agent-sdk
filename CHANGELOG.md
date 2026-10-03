@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.18.0 — 2026-10-03
+
+- Add a server-only partner admin client for hosted workspaces, member provisioning,
+  per-workspace limits, delegated Builder access, agent cloning, and private templates.
+- Add batch member provisioning, opt-in first-use end-user creation, and account and
+  workspace provisioning controls with version checks.
+- Add account-level subject suspension, resume, and erasure APIs. The erasure helper
+  pages through retired subject namespaces and acknowledges partner-owned memory
+  and integration cleanup only after the supplied callbacks succeed.
+- Add partner-owned memory and signed tool identity helpers for subject-scoped
+  integrations. Hosted production token issuance remains gated by the runtime.
+
 ## 0.17.0 — 2026-09-25
 
 - Pass schema-validated tool input to customer-hosted `authorize(context, input)`

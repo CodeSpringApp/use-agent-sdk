@@ -60,7 +60,64 @@ const launch = await partner.builder.createSession(workspace.workspaceId, {
 // Redirect the authenticated merchant user to launch.launchUrl from your server.
 ```
 
-Workspace suspension and member suspension revoke new access. `partner.agents.clone` creates a draft from an immutable revision. Cross-workspace clones require a destination model profile and reject source capabilities that need remapping. An operator sets the account daily turn ceiling, then `partner.limits.update` and `partner.limits.updateMember` set narrower versioned daily turn limits. `partner.limits.balance` and `partner.limits.memberBalance` show reserved, consumed, and remaining turns. New accounts and workspaces start with zero turns. Session dispatch now checks the turn ledger, but hosted runtime tokens and AI testing remain disabled until customer-rated usage and the other launch gates are complete. The broader spending, billing, and personal capability APIs described in the platform RFCs are not live yet.
+Workspace suspension and member suspension revoke new access. `partner.agents.clone` creates a draft from an immutable revision. Cross-workspace clones require a destination model profile and reject source capabilities that need remapping. An operator sets the account daily turn ceiling, then `partner.limits.update` and `partner.limits.updateMember` set narrower versioned daily turn limits. `partner.limits.balance` and `partner.limits.memberBalance` show reserved, consumed, and remaining turns. New accounts and workspaces start with zero turns. Session dispatch checks the turn ledger. With the credit integration, hosted production runtime tokens additionally require an operator-configured CodeSpring rate and a technical credit policy. Hosted production AI Builder/Playground testing remains gated. The broader spending and personal capability APIs described in the platform RFCs are not live yet.
+
+#### Credits and billing (0.19.0)
+
+The partner owns subscriptions, payments and model/token credit pricing. Use-agent
+holds and settles product credits; it does not need plan IDs. Configure a technical
+policy, fund each user's wallet, and consume metering events on your server:
+
+```ts
+const scope = { workspaceId, environmentId };
+const wallet = { ...scope, walletId: externalUserId };
+await partner.credits.setPolicy(scope, {
+  expectedVersion: 0, ratingVersion: "token-prices-v1", mode: "partner_rated",
+  reserveCredits: 50, walletMode: "member",
+}, "configure-v1");
+await partner.credits.grant(wallet, {
+  amount: 100, source: "included", reference: "period-123", expiresAt: periodEndsAt,
+}, `allowance:${externalUserId}:period-123`);
+const balance = await partner.credits.getBalance(wallet);
+const page = await partner.usage.listEvents({ ...scope, limit: 100 });
+for (const event of page.data) {
+  if (event.type !== "usage.turn_ready" || event.data.mode !== "partner_rated") continue;
+  const credits = yourServerPricesTheUsage(event); // use its pinned ratingVersion
+  await partner.credits.capture({ ...scope, walletId: event.walletId! }, {
+    operationId: event.operationId!, meteringEventId: event.eventId,
+    ratingVersion: String(event.data.ratingVersion), amount: credits,
+    reason: "Partner token price",
+  }, `capture:${event.eventId}`);
+}
+```
+
+Reads require `partner:billing:read`; mutations require `partner:credits:write`.
+`walletId` is the provisioned member's stable externalUserId, scoped to the workspace
+and environment. Omit it with `walletMode: "workspace"` for shared credits.
+`mode: "fixed"` charges `reserveCredits` per started turn. Member-specific policy
+overrides are supported. Credit policy updates use expectedVersion; ratingVersion
+is immutable, and existing holds retain their version. Wallet ownership mode is
+immutable. `credits.setAccess` gates spending independently of subscription status.
+
+`credits.listGrants` exposes funding lots; `credits.revoke` removes only unspent,
+unreserved, unexpired credits. `credits.refund` restores one positive usage charge
+once. Neither method makes a money refund. `credits.capture` accepts 0..reserved
+credits and releases the remainder; it requires a terminal runtime metering event.
+A zero capture is an explicit audited waiver. Missing receipts retain holds until
+review. Metering covers committed model steps, not all possible provider charges.
+
+Persist mutation bodies and keys before sending; replay exactly after timeouts.
+Grants additionally deduplicate wallet/source/reference. Use a durable outbox and
+ordered event consumer; save a processed event sequence only after successful
+capture. Follow page cursors, then poll from the last processed sequence. The
+runtime emits `usage.turn_ready` once; partner retries do not rerun model work.
+
+CodeSpring's flat operator fee is separate from product credits and excludes
+provider charges in this preview. Summaries are `not_invoiced`; finalized invoices
+and push webhooks are not implemented. Keep operator charges on your backend.
+The local example lives in `use-agent/examples/partner-credits` and uses the actual
+SDK/Workers runtime with a deterministic model, partner-owned pricing and no
+payment-provider integration. Available in SDK 0.19.0 with the matching runtime credit API.
 
 `partner.members.upsert` returns an account-level `partnerSubjectId` plus a distinct workspace `subjectId`. `partner.subjects.list` and `get` provide a cross-workspace directory. `partner.subjects.suspend` and `partner.subjects.resume` take an expected version. Resumption rotates workspace identities and invalidates old runtime tokens and unused Builder launch links. `partner.subjects.erase` requires the separate `partner:users:erase` scope, an expected version, and a UUID operation ID. It immediately revokes and redacts the hosted identity, then starts resumable session and Builder attachment cleanup. `partner.subjects.erasureStatus` reports progress. The partner remains responsible for deleting memory and integrations in its own systems. `partner.provisioning.get` and `getWorkspace` show operator-owned live capacity and UTC daily creation limits. The partner cannot raise those ceilings through the SDK.
 

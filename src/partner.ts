@@ -1,10 +1,13 @@
+import { partnerBilling } from "./partner-billing";
+export type { CreditScope, CreditPolicy, CreditCapture, CreditMetering, CreditGrantLot, CreditGrant, CreditBalance, CreditEvent, UsageQuery, UsageEvents, UsageSummary } from "./partner-billing";
 /** Server-only CodeSpring partner administration client. Never bundle the key in a browser. */
 export type PartnerScope =
   | "partner:workspaces:read" | "partner:workspaces:write"
   | "partner:users:read" | "partner:users:write" | "partner:users:erase"
   | "partner:builder:delegate" | "partner:agents:clone"
   | "partner:policies:read" | "partner:policies:write"
-  | "partner:templates:read" | "partner:templates:write";
+  | "partner:templates:read" | "partner:templates:write"
+  | "partner:billing:read" | "partner:credits:write";
 
 export type PartnerTemplate = {
   templateId: string; version: number; title: string; summary: string;
@@ -147,6 +150,7 @@ export function createPartnerClient(options: PartnerClientOptions) {
   }
 
   return {
+    ...partnerBilling(request),
     workspaces: {
       create(input: { externalCustomerId: string; displayName: string; idempotencyKey: string }) {
         const { idempotencyKey, ...body } = input;

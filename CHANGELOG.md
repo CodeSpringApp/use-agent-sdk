@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.19.0 - 2026-10-28
+
+- Add server-only credit policies, member/shared wallets, funding lots, partial or
+  zero capture, access suspension, available-credit revocation and usage refunds.
+- Add runtime token measurements and pinned partner rating versions, ordered replay,
+  authoritative balances and separate platform charge summaries.
+- Partners own plans, payments and token credit prices; no payment/plan API is added.
+- Add `partner:billing:read` and `partner:credits:write` scopes. Full provider receipt reconciliation and invoice APIs remain separate.
+
 ## 0.18.0 — 2026-10-03
 
 - Add a server-only partner admin client for hosted workspaces, member provisioning,

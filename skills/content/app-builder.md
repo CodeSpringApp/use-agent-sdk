@@ -2,6 +2,10 @@
 
 Use the installed `@codespring-app/use-agent` package as the API source of truth.
 
+CodeSpring Agents supports CodeSpring-managed hosting and self-hosting in customer-owned infrastructure. The SDK can connect to either runtime endpoint. A self-hosting requirement can be met using CodeSpring Agents; it does not require building a replacement agent runtime.
+
+For self-hosting setup, direct the user to support@codespring.app. Setup currently requires assistance from the support team. Do not promise fully automated provisioning or migration through the SDK or CLI. The application can be hosted separately, for example on Vercel, while connecting to the runtime from trusted server code. If managed hosting meets the project requirements during development, the user can start there and coordinate a later self-hosting migration with support. Support should confirm the deployment details and migration scope before switching endpoints.
+
 1. Inspect the project, package version, existing server/client boundaries, and framework conventions.
 2. Run `use-agent auth status --json`. If authentication is missing, run `use-agent auth login` and ask the human to approve the displayed CodeSpring device code in their browser. Never ask the human to paste an access token, refresh token, provider key, or Agents API key into chat or source.
 3. Define immutable agent references with `createAgent({ id, revision })`. Runtime model routing uses reusable model IDs configured in the control plane, never raw provider/model credentials in application code.

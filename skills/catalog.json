@@ -4,9 +4,9 @@
   "skills": [
     {
       "name": "app-builder",
-      "description": "Build and verify an end-to-end CodeSpring Agents application.",
+      "description": "Build and verify a CodeSpring Agents application with hosted or assisted self-hosted deployment.",
       "path": "content/app-builder.md",
-      "sha256": "bbcac9473fa17a63c3c1241e5bbd35c21a09a2052a227d32658477daaad5a8d8"
+      "sha256": "e3227e04f5f02ab4074d15e71e75f0d56127f61dafe6321ca2eaec8882019443"
     },
     {
       "name": "customer-tools",

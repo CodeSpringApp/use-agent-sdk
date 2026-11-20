@@ -1,3 +1,18 @@
+export type ExecutionHarness = "native_v1" | "codex_wasm_v1";
+export interface CreateSessionOptions extends RequestOptions {
+  externalUserId?: string;
+  /** Server only: bind the session to the same authenticated user as the browser token. */
+  browserUserId?: string;
+  executionHarness?: ExecutionHarness;
+}
+export interface WorkspaceFile { path: string; version: number; sizeBytes: number }
+export interface WorkspaceFileContent extends WorkspaceFile { content: string }
+export interface SessionWorkspace { executionHarness: ExecutionHarness; files: WorkspaceFile[]; file: WorkspaceFileContent | null }
+export interface RuntimeCapabilities {
+  schemaVersion: 1;
+  workspace: { enabled: boolean; canCreate: boolean; experimental: true; limits: { maxFileBytes: number; maxFiles: number; maxTotalBytes: number } };
+}
+
 export type TurnStatus =
   | "queued"
   | "running"
@@ -17,6 +32,7 @@ export interface AgentEvent {
 }
 
 export interface SessionSnapshot {
+  executionHarness?: ExecutionHarness;
   sessionId: string;
   agentRevisionId: string;
   createdAt: string;
@@ -32,6 +48,7 @@ export interface SessionSnapshot {
 }
 
 export interface CreateSessionResponse {
+  executionHarness?: ExecutionHarness;
   sessionId: string;
   agentRevisionId: string;
   createdAt: string;

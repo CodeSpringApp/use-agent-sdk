@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.20.0
+
+- Add experimental workspace session creation, explicit browser ownership, runtime capability discovery, and file list/read APIs.
+- Add `AgentWorkspace`, `AgentWorkspaceLayout`, `AgentWorkspaceFiles`, and `useAgentWorkspace` with responsive previews, scoped styles, and safe file rendering.
+- Add guarded CLI session creation, submission, cancellation, event replay, and workspace reads.
+- Add version-matched workspace guidance and correct the React skill to use `AgentChat`.
+- Requires a runtime with the workspace API; execution remains opt-in and operator-gated.
+
+
 ## 0.19.1 - 2026-11-20
 
 - Document hosted and assisted self-hosted options in the SDK and CLI skills.

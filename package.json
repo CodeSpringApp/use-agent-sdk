@@ -1,6 +1,6 @@
 {
   "name": "@codespring-app/use-agent",
-  "version": "0.19.1",
+  "version": "0.20.0",
   "description": "Server and React SDKs for the CodeSpring Agents runtime",
   "license": "UNLICENSED",
   "repository": {
@@ -69,7 +69,8 @@
     "example:live": "bun run examples/live-session-replay.ts",
     "test": "bun test",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "check": "bun run typecheck && bun run test && bun run build"
+    "check": "bun run typecheck && bun run test && bun run build",
+    "workspace:showcase": "vite examples/workspace --host 127.0.0.1 --port 8931"
   },
   "peerDependencies": {
     "react": ">=18.0.0",

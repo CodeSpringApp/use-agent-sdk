@@ -1,30 +1,36 @@
 {
   "schemaVersion": 1,
-  "packageVersion": "0.19.1",
+  "packageVersion": "0.20.0",
   "skills": [
     {
       "name": "app-builder",
       "description": "Build and verify a CodeSpring Agents application with hosted or assisted self-hosted deployment.",
       "path": "content/app-builder.md",
-      "sha256": "e3227e04f5f02ab4074d15e71e75f0d56127f61dafe6321ca2eaec8882019443"
+      "sha256": "1b99c5a9f78bf2409d50f27bd76c3533f56a6faeb501797c0e4d24cb512fc6b6"
     },
     {
       "name": "customer-tools",
       "description": "Build signed, retry-safe customer-hosted tools.",
       "path": "content/customer-tools.md",
-      "sha256": "b321fbf650332d7a1601448a595112a21ef97c160ba1f608b76b2453b33babea"
+      "sha256": "7f6268e11211db1407f3829e20112dc676d923c0bf42147d922a28505fe60cfd"
     },
     {
       "name": "react-ui",
       "description": "Integrate the plug-and-play or headless React agent UI.",
       "path": "content/react-ui.md",
-      "sha256": "b7bf424f31c2be84b82e2f67fdc21454d28f985a05c4ff558c581bb597df6a37"
+      "sha256": "a66feb0ca1bf1c8e3befda158873741d1e980bed016dab11433cc5888044c324"
     },
     {
       "name": "control-plane",
       "description": "Inspect and safely manage control-plane resources.",
       "path": "content/control-plane.md",
-      "sha256": "4a8ab4fbd1a385c402980781a7adb832bc9a4b5f3dc77e17595f9f69bb8797cd"
+      "sha256": "a36f68656b5d44d86700c735d21e93f49a0143355561818e3d5bd072eaf57ff4"
+    },
+    {
+      "name": "workspace",
+      "description": "Use experimental session workspaces, file APIs, React workbench, and CLI with explicit ownership and deployment checks.",
+      "path": "content/workspace.md",
+      "sha256": "8b0d1e1546572f03c32515f47d6f898999ed85e8c7aa0d91fac4e8dc322bad59"
     }
   ]
 }

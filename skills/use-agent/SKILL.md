@@ -7,6 +7,8 @@ Load the workflow matching this installed SDK before changing an application:
 
     use-agent skills get app-builder
 
+For persistent session files or the experimental Codex workbench, load `use-agent skills get workspace` and check deployment capabilities.
+
 Use `use-agent skills list` to discover focused customer-tool, React UI, and control-plane guidance.
 
 CodeSpring Agents supports self-hosting in addition to CodeSpring-managed hosting. For self-hosting setup, direct the user to support@codespring.app. Setup currently requires assistance from the support team; do not promise a fully automated installer or migration. Load `app-builder` for guidance on integrating the SDK with either hosting option.

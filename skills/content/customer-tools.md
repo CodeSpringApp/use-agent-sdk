@@ -11,3 +11,5 @@ Customer code runs on customer infrastructure. The hosted runtime stores only to
 - Deploy the handler first, verify its health route, then register the exact HTTPS endpoint and immutable handler revision. Keep old handler revisions available while published agents or durable sessions reference them.
 
 Load the package example at `examples/customer-hosted-tool.ts` for the current handler API. Remote registration is a control-plane write and requires explicit authorization.
+
+The experimental session workspace supplies runtime-managed text-file tools. These are separate from customer-hosted tools and do not provide shell or filesystem access to customer infrastructure. Load `use-agent skills get workspace` for limits and ownership.

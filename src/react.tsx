@@ -2664,3 +2664,6 @@ export type {
   McpAppToolResult,
 } from "./mcp-apps";
 export type { BrowserAgentClientOptions, SessionSnapshot } from "./types";
+
+export { AgentWorkspace, AgentWorkspaceLayout, AgentWorkspaceFiles, useAgentWorkspace, type WorkbenchStatus } from "./workspace";
+export type { WorkspaceFile, WorkspaceFileContent, SessionWorkspace, RuntimeCapabilities, ExecutionHarness, CreateSessionOptions } from "./types";

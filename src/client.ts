@@ -1,3 +1,4 @@
+import type { CreateSessionOptions, RuntimeCapabilities, SessionWorkspace, WorkspaceFileContent } from "./types";
 import type { ProviderModelPage, ProviderModelOptions, ProviderModelValidation } from "./types";
 import type {
   AgentDefinition,
@@ -463,6 +464,16 @@ export class AgentSession {
     public readonly id: string,
   ) {}
 
+  readonly workspace = {
+    list: (options: RequestOptions = {}): Promise<SessionWorkspace> =>
+      this.transport.request(`/v1/sessions/${encodeURIComponent(this.id)}/workspace`, requestInit(options)),
+    read: async (path: string, options: RequestOptions = {}): Promise<WorkspaceFileContent> => {
+      const result = await this.transport.request<SessionWorkspace>(`/v1/sessions/${encodeURIComponent(this.id)}/workspace?${new URLSearchParams({ path })}`, requestInit(options));
+      if (!result.file) throw new Error("Workspace response did not contain the requested file");
+      return result.file;
+    },
+  };
+
   get(options: RequestOptions = {}): Promise<SessionSnapshot> {
     return this.transport.request(`/v1/sessions/${encodeURIComponent(this.id)}`, {
       ...(options.signal === undefined ? {} : { signal: options.signal }),
@@ -546,16 +557,22 @@ export interface TurnStatusResponse {
 export class AgentClient {
   constructor(private readonly transport: Transport) {}
 
+  readonly capabilities = {
+    get: (options: RequestOptions = {}): Promise<RuntimeCapabilities> => this.transport.request("/v1/capabilities", requestInit(options)),
+  };
+
   readonly sessions = {
     create: async (
       agent: AgentDefinition,
-      options: RequestOptions & { externalUserId?: string } = {},
+      options: CreateSessionOptions = {},
     ): Promise<AgentSession> => {
       const created = await this.transport.request<CreateSessionResponse>("/v1/sessions", {
         method: "POST",
         body: JSON.stringify({
           agentRevisionId: agent.revisionId,
           ...(options.externalUserId === undefined ? {} : { externalUserId: options.externalUserId }),
+          ...(options.browserUserId === undefined ? {} : { browserUserId: options.browserUserId }),
+          ...(options.executionHarness === undefined ? {} : { executionHarness: options.executionHarness }),
         }),
         ...(options.signal === undefined ? {} : { signal: options.signal }),
       });

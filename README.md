@@ -304,6 +304,75 @@ The dashboard accepts a folder, ZIP, or pasted `SKILL.md`; the same strict
 validation, size limits, path checks, and immutable package digests apply to SDK
 uploads. All registry and catalogue lists use opaque cursor pagination.
 
+## Experimental session workspaces
+
+Workspace sessions use the Worker-native Codex-derived turn loop and persistent
+text files. Check `await client.capabilities.get()` for deployment availability.
+The configured model API and workspace credits pay for inference. This does not
+connect a ChatGPT subscription, run a shell, or process video files.
+
+```ts
+const session = await client.sessions.create(agent, {
+  executionHarness: "codex_wasm_v1",
+  // Trusted server only. Omit for sessions that will remain server-only.
+  browserUserId: authenticatedUser.id,
+});
+await session.submit("Save a short plan in notes.md", {
+  idempotencyKey: crypto.randomUUID(),
+});
+// Wait for turn.completed through event replay or streaming before reading output.
+const workspace = await session.workspace.list();
+const file = await session.workspace.read("notes.md");
+```
+
+For browser use, issue a normal short-lived client token with `externalUserId`
+equal to the authenticated `browserUserId` above. The token origin and allowed
+agent revisions must match the application. A server-created session with only
+`externalUserId` does not establish browser ownership. Browser tokens can read
+and continue their own workspace sessions; creation stays on the server.
+
+```tsx
+import { AgentWorkspace, AgentProvider } from "@codespring-app/use-agent/react";
+
+<AgentProvider client={browserClient} appearance={appearance}>
+  <AgentWorkspace sessionId={sessionId} title="Research" />
+</AgentProvider>
+```
+
+`AgentWorkspace` uses the existing session store, composer, cancellation, and
+streaming. Files refresh after durable changes. The UI includes Markdown/source
+preview, safe text rendering, copy/download, and mobile pane switching. No
+Tailwind dependency or separate stylesheet is required. Set its height through
+`style` or the containing layout. An optional `onInspect` callback can open your
+session diagnostics after a failed turn.
+
+For custom UI, use `useAgentWorkspace(sessionId)` for `files`, `file`, `selected`,
+`select`, `loading`, `error`, `refresh`, and `executionHarness`.
+`AgentWorkspaceLayout` and `AgentWorkspaceFiles` are composable React components.
+Changing the client or session hides old file data immediately.
+
+Limits: 16 KiB UTF-8 text per file, 128 files, and 1 MiB per session. Files stay
+with that session. Writes use the built-in tools and expected file versions.
+File reads accept `{ signal }`. Existing sessions keep their original harness;
+`native_v1` remains the default. Disabled or unsupported deployments return an
+error for explicit workspace requests rather than silently changing execution.
+
+Load `use-agent skills get workspace` for the full workflow. CLI inspection:
+
+```sh
+use-agent capabilities --json
+use-agent workspace list SESSION_ID --json
+use-agent workspace read SESSION_ID --path notes.md --json
+```
+
+`use-agent help` lists the session create, submit, events, and cancel commands.
+Creation, submission, and cancellation require `--yes`; submit also requires an
+explicit idempotency key. CLI-created sessions belong to the logged-in human.
+API-key sessions use the scope and agent restrictions of that server key.
+
+A local interactive fixture is available with `bun run workspace:showcase`.
+It uses mock responses and never sends model requests.
+
 ## CLI and coding-agent skill
 
 The package installs a `use-agent` executable and exports a testable Node-only

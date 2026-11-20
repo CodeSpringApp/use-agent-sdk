@@ -1,3 +1,4 @@
+import { createAgent } from "./agent";
 import { createHash } from "node:crypto";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -185,6 +186,57 @@ export async function runCli(
         writeResult(stdout, json, result, `${result.modelId}\nListed by provider: ${result.listed}\nAllowed by key policy: ${result.allowed}\nRuntime compatibility: ${result.compatibility}\nMetadata only; inference was not tested.\n`);
       }
       return 0;
+    }
+
+    if (group === "capabilities" && (!action || action === "--json")) {
+      validateWorkspaceOptions(args.slice(1), ["--json"]);
+      const client = await authenticatedClient(environment, authDependencies(dependencies, environment, stderr));
+      const result = await client.capabilities.get();
+      writeResult(stdout, json, result, `Workspace: ${result.workspace.enabled ? "enabled" : "disabled"} (experimental)\nCan create: ${result.workspace.canCreate}\n`); return 0;
+    }
+    if (group === "sessions" && ["create", "get", "submit", "events", "cancel"].includes(action ?? "")) {
+      const flags: Record<string, string[]> = { create: ["--agent", "--harness", "--yes", "--json"], get: ["--json"], submit: ["--message", "--idempotency-key", "--yes", "--json"], events: ["--after", "--json"], cancel: ["--turn", "--yes", "--json"] };
+      validateWorkspaceOptions(rest, flags[action!]!);
+      const mutation = ["create", "submit", "cancel"].includes(action!);
+      if (mutation && !rest.includes("--yes")) throw new CliError(2, "confirmation_required", "Pass --yes for this session mutation");
+      const id = positional(rest)[0];
+      if (action !== "create" && !id) throw new CliError(2, "session_id_required", "Provide a session ID");
+      let agent: ReturnType<typeof createAgent> | undefined;
+      const harness = option(rest, "--harness") ?? "native_v1";
+      if (action === "create") {
+        const revision = option(rest, "--agent") ?? "";
+        const separator = revision.lastIndexOf("@");
+        if (separator < 1) throw new CliError(2, "agent_revision_required", "Use --agent ID@REVISION");
+        if (harness !== "native_v1" && harness !== "codex_wasm_v1") throw new CliError(2, "invalid_harness", "Unknown execution harness");
+        agent = createAgent({ id: revision.slice(0, separator), revision: revision.slice(separator + 1) });
+      }
+      const content = option(rest, "--message");
+      const idempotencyKey = option(rest, "--idempotency-key");
+      if (action === "submit" && (!content || !idempotencyKey)) throw new CliError(2, "turn_input_required", "Provide --message and --idempotency-key; reuse that key only when retrying the same submission");
+      const turnId = option(rest, "--turn");
+      if (action === "cancel" && !turnId) throw new CliError(2, "turn_id_required", "Provide --turn TURN_ID");
+      const after = Number(option(rest, "--after") ?? "0");
+      if (action === "events" && (!Number.isSafeInteger(after) || after < 0)) throw new CliError(2, "invalid_cursor", "--after must be a nonnegative integer");
+      const client = await authenticatedClient(environment, authDependencies(dependencies, environment, stderr));
+      let result: unknown;
+      if (agent) {
+        const created = await client.sessions.create(agent, { executionHarness: harness as "native_v1" | "codex_wasm_v1" });
+        result = { sessionId: created.id, executionHarness: harness };
+      } else {
+        const session = client.sessions.get(id!);
+        result = action === "get" ? await session.get() : action === "events" ? await session.events(after, 100)
+          : action === "cancel" ? await session.cancel(turnId!) : await session.submit(content!, { idempotencyKey: idempotencyKey! });
+      }
+      writeResult(stdout, json, result, `${JSON.stringify(result, null, 2)}\n`); return 0;
+    }
+    if (group === "workspace" && (action === "list" || action === "read")) {
+      validateWorkspaceOptions(rest, action === "read" ? ["--path", "--json"] : ["--json"]);
+      const id = positional(rest)[0]; const path = option(rest, "--path");
+      if (!id || (action === "read" && !path)) throw new CliError(2, "workspace_input_required", "Provide a session ID and --path for a file read");
+      const client = await authenticatedClient(environment, authDependencies(dependencies, environment, stderr));
+      const workspace = client.sessions.get(id).workspace;
+      const result = action === "list" ? await workspace.list() : await workspace.read(path!);
+      writeResult(stdout, json, result, `${JSON.stringify(result, null, 2)}\n`); return 0;
     }
 
     if ((group === "agents" || group === "tools") && (action === "list" || action === "get")) {
@@ -418,6 +470,14 @@ function normalizeError(error: unknown): { exitCode: number; code: string; messa
 const helpText = `Use Agent CLI
 
 Usage:
+  use-agent capabilities [--json]
+  use-agent sessions create --agent ID@REVISION [--harness native_v1|codex_wasm_v1] --yes [--json]
+  use-agent sessions get <session-id> [--json]
+  use-agent sessions submit <session-id> --message TEXT --idempotency-key KEY --yes [--json]
+  use-agent sessions events <session-id> [--after CURSOR] [--json]
+  use-agent sessions cancel <session-id> --turn TURN_ID --yes [--json]
+  use-agent workspace list <session-id> [--json]
+  use-agent workspace read <session-id> --path PATH [--json]
   use-agent auth login [--no-browser] [--tenant ID|SLUG] [--environment ID|SLUG]
   use-agent auth status [--json]
   use-agent auth logout [--json]
@@ -436,3 +496,12 @@ Environment:
   CODESPRING_AGENTS_API_KEY   Server/CI credential (never pass it as an argument)
   CODESPRING_AGENTS_ENDPOINT  Hosted or self-hosted runtime endpoint
 `;
+
+function validateWorkspaceOptions(args: string[], allowed: string[]) {
+  for (let index = 0; index < args.length; index++) {
+    const value = args[index]!;
+    if (!value.startsWith("--")) continue;
+    if (!allowed.includes(value)) throw new CliError(2, "unsupported_option", "Unsupported option for this command; see use-agent help");
+    if (value !== "--json" && value !== "--yes") { option(args, value); index++; }
+  }
+}

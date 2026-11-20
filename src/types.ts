@@ -1,14 +1,27 @@
+export interface ChatGPTPlanSelection { source: "chatgpt_plan"; model: string; grantId: string }
+export interface ChatGPTPlanStatus {
+  eligible: boolean;
+  status: "unavailable" | "setup_required" | "disconnected" | "authorizing" | "connected" | "reconnect_required";
+  grantId: string | null;
+  account: { label: string; email?: string } | null;
+  manageUsageUrl: "https://chatgpt.com/settings/usage";
+}
+export interface ChatGPTPlanModels { models: Array<{ id: string; label: string }> }
+export interface ChatGPTPlanAuthorization { authorizationUrl: string; expiresAt: string }
+
 export type ExecutionHarness = "native_v1" | "codex_wasm_v1";
 export interface CreateSessionOptions extends RequestOptions {
   externalUserId?: string;
   /** Server only: bind the session to the same authenticated user as the browser token. */
   browserUserId?: string;
   executionHarness?: ExecutionHarness;
+  inference?: ChatGPTPlanSelection;
 }
 export interface WorkspaceFile { path: string; version: number; sizeBytes: number }
 export interface WorkspaceFileContent extends WorkspaceFile { content: string }
-export interface SessionWorkspace { executionHarness: ExecutionHarness; files: WorkspaceFile[]; file: WorkspaceFileContent | null }
+export interface SessionWorkspace { inference?: ChatGPTPlanSelection; executionHarness: ExecutionHarness; files: WorkspaceFile[]; file: WorkspaceFileContent | null }
 export interface RuntimeCapabilities {
+  chatGPTPlan?: { eligible: boolean };
   schemaVersion: 1;
   workspace: { enabled: boolean; canCreate: boolean; experimental: true; limits: { maxFileBytes: number; maxFiles: number; maxTotalBytes: number } };
 }
@@ -33,6 +46,7 @@ export interface AgentEvent {
 
 export interface SessionSnapshot {
   executionHarness?: ExecutionHarness;
+  inference?: ChatGPTPlanSelection;
   sessionId: string;
   agentRevisionId: string;
   createdAt: string;
@@ -49,6 +63,7 @@ export interface SessionSnapshot {
 
 export interface CreateSessionResponse {
   executionHarness?: ExecutionHarness;
+  inference?: ChatGPTPlanSelection;
   sessionId: string;
   agentRevisionId: string;
   createdAt: string;

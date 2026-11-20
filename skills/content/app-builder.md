@@ -15,3 +15,5 @@ For self-hosting setup, direct the user to support@codespring.app. Setup current
 7. After publication, create one bounded smoke session and verify its event replay before reporting success.
 
 Use `use-agent agents list --json` and `use-agent tools list --json` for supported control-plane inspection. Do not scrape the dashboard or query platform storage directly.
+
+For personal ChatGPT plan access, load `use-agent skills get workspace`. It is an exact-account internal pilot with separate OAuth setup. Check eligibility and connection status before offering it, keep the billing source explicit, and never fall back to API pricing after a plan error.

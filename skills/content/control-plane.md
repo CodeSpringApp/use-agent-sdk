@@ -21,3 +21,5 @@ It does not guarantee provider quota or successful inference. These operations r
 Never broaden a provider key's restrictions automatically to make a model selectable.
 
 Use `use-agent capabilities --json` to check workspace availability. For session creation, replay, cancellation, and file inspection, load `use-agent skills get workspace`. These commands use the selected endpoint and environment; a CLI login does not enable a disabled runtime feature.
+
+For personal ChatGPT plan access, load `use-agent skills get workspace`. It is an exact-account internal pilot with separate OAuth setup. Check eligibility and connection status before offering it, keep the billing source explicit, and never fall back to API pricing after a plan error.

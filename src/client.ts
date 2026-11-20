@@ -1,3 +1,4 @@
+import type { ChatGPTPlanStatus, ChatGPTPlanModels, ChatGPTPlanAuthorization } from "./types";
 import type { CreateSessionOptions, RuntimeCapabilities, SessionWorkspace, WorkspaceFileContent } from "./types";
 import type { ProviderModelPage, ProviderModelOptions, ProviderModelValidation } from "./types";
 import type {
@@ -557,6 +558,15 @@ export interface TurnStatusResponse {
 export class AgentClient {
   constructor(private readonly transport: Transport) {}
 
+  /** Internal pilot. Requires a personal CodeSpring login, never a workspace API key. */
+  readonly chatGPTPlan = {
+    status: (options: RequestOptions = {}): Promise<ChatGPTPlanStatus> => this.transport.request("/v1/chatgpt-plan/status", requestInit(options)),
+    models: (options: RequestOptions = {}): Promise<ChatGPTPlanModels> => this.transport.request("/v1/chatgpt-plan/models", requestInit(options)),
+    authorize: (options: RequestOptions = {}): Promise<ChatGPTPlanAuthorization> => this.transport.request("/v1/chatgpt-plan/begin", { ...requestInit(options), method: "POST", body: "{}" }),
+    complete: (input: { state: string; code: string } | { state: string; error: string }, options: RequestOptions = {}): Promise<ChatGPTPlanStatus> => this.transport.request("/v1/chatgpt-plan/complete", { ...requestInit(options), method: "POST", body: JSON.stringify(input) }),
+    disconnect: (options: RequestOptions = {}): Promise<ChatGPTPlanStatus> => this.transport.request("/v1/chatgpt-plan/disconnect", { ...requestInit(options), method: "POST", body: "{}" }),
+  };
+
   readonly capabilities = {
     get: (options: RequestOptions = {}): Promise<RuntimeCapabilities> => this.transport.request("/v1/capabilities", requestInit(options)),
   };
@@ -573,6 +583,7 @@ export class AgentClient {
           ...(options.externalUserId === undefined ? {} : { externalUserId: options.externalUserId }),
           ...(options.browserUserId === undefined ? {} : { browserUserId: options.browserUserId }),
           ...(options.executionHarness === undefined ? {} : { executionHarness: options.executionHarness }),
+          ...(options.inference === undefined ? {} : { inference: options.inference }),
         }),
         ...(options.signal === undefined ? {} : { signal: options.signal }),
       });

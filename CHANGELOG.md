@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.21.0
+
+- Add personal ChatGPT plan status, authorization, model discovery and disconnect APIs for the internal pilot.
+- Pin the selected plan model and grant when creating a workspace session.
+- Add CLI connection commands and explicit session flags, with matching capability and skill guidance.
+- Show the ChatGPT billing source in the React workspace.
+
+Hosted OAuth registration and account eligibility are required; plan errors never switch to API pricing.
+
 ## 0.20.2
 
 - Correct the packaged skill catalog version and check it against the package version during release tests.

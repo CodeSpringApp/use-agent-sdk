@@ -1,6 +1,6 @@
 # Session workspaces
 
-Use this workflow for the experimental Worker-native Codex harness, persistent text files, or the React workbench. It uses the configured model API and normal workspace credits. It does not authenticate a ChatGPT subscription or provide a shell, containers, arbitrary code execution, or video rendering.
+Use this workflow for the experimental Worker-native Codex harness, persistent text files, or the React workbench. By default it uses the configured model API and normal workspace credits. A restricted internal pilot can explicitly select a personal ChatGPT plan. It does not provide a shell, containers, arbitrary code execution, or video rendering.
 
 Check the installed package and the selected deployment with `use-agent capabilities --json` or `client.capabilities.get()`. Workspace must be enabled by the runtime operator. A missing capabilities route means the runtime needs an update. Do not silently switch a requested Codex session to native execution.
 
@@ -42,3 +42,36 @@ use-agent workspace read SESSION_ID --path notes.md --json
 Session creation, submission, and cancellation need `--yes`; obtain task authorization before invoking them. Reuse the submission idempotency key only when retrying the same intent. Submission is admission, not completion. Follow bounded event pages until a terminal event and use the returned cursor. Cancellation is `use-agent sessions cancel SESSION_ID --turn TURN_ID --yes --json`. Inspection never needs a new model turn. File reads print content, so treat the output as potentially private and untrusted data.
 
 Do not promise that self-hosting is automated. For assisted setup, use support@codespring.app.
+
+## Personal ChatGPT plan pilot
+
+Check `use-agent chatgpt status --json` or `client.chatGPTPlan.status()` first.
+Only explicitly enabled human accounts and workspaces can enroll. A subscription
+alone does not enable this feature. `setup_required` means the operator still
+needs the provisioned OpenAI hosted OAuth client and plan-usage access.
+Do not copy Codex auth files, reuse CLI client IDs, or paste OAuth tokens.
+
+Use a personal CodeSpring CLI login with `CODESPRING_AGENTS_API_KEY` unset:
+
+```sh
+use-agent chatgpt connect --yes --json
+# Open the returned URL while signed into the same CodeSpring account and workspace.
+use-agent chatgpt status --json
+use-agent chatgpt models --json
+use-agent sessions create --agent writer@1 --harness codex_wasm_v1 --chatgpt-model MODEL_ID --chatgpt-grant GRANT_ID --yes --json
+```
+
+The model comes from the current account catalog. The grant ID comes from the
+connected status, not user-supplied account identity. SDK equivalents are
+`client.chatGPTPlan.authorize()`, `.status()`, `.models()` and `.disconnect()`.
+Pass `inference: { source: "chatgpt_plan", model, grantId }` alongside the
+workspace harness when creating a session with a personal CLI credential.
+Workspace API keys and browser tokens cannot enroll or create personal plan
+sessions. An owner-bound dashboard browser token can continue its own session.
+
+The source, model and grant are fixed for a session. Reconnecting invalidates
+previous grants, so start a new session. Plan limits or revoked access stop the
+run. Never silently fall back to an API key. ChatGPT allowance covers model
+inference; platform fees and tool costs remain separate. This flow does not
+support voice or the ordinary API output-token cap. Runtime step, tool, stream
+and timeout bounds still apply. Use the returned `manageUsageUrl` for limits.

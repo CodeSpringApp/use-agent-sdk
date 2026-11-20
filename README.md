@@ -308,8 +308,12 @@ uploads. All registry and catalogue lists use opaque cursor pagination.
 
 Workspace sessions use the Worker-native Codex-derived turn loop and persistent
 text files. Check `await client.capabilities.get()` for deployment availability.
-The configured model API and workspace credits pay for inference. This does not
-connect a ChatGPT subscription, run a shell, or process video files.
+The configured model API and workspace credits pay for inference by default.
+An explicitly enabled internal pilot can select personal ChatGPT plan usage through
+Sign in with ChatGPT. This requires a provisioned hosted OAuth client and plan access;
+a subscription alone is not enough. Check `use-agent chatgpt status --json` and the
+[workspace guide](skills/content/workspace.md) before offering this option.
+Workspace sessions do not run a shell or process video files.
 
 ```ts
 const session = await client.sessions.create(agent, {

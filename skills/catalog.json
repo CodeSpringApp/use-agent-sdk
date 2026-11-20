@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
-  "packageVersion": "0.20.2",
+  "packageVersion": "0.21.0",
   "skills": [
     {
       "name": "app-builder",
       "description": "Build and verify a CodeSpring Agents application with hosted or assisted self-hosted deployment.",
       "path": "content/app-builder.md",
-      "sha256": "1b99c5a9f78bf2409d50f27bd76c3533f56a6faeb501797c0e4d24cb512fc6b6"
+      "sha256": "5a43e2d2cfbb6350c381bbabeea35dd1cf002294f1676b76c709a071795eb1b3"
     },
     {
       "name": "customer-tools",
@@ -18,19 +18,19 @@
       "name": "react-ui",
       "description": "Integrate the plug-and-play or headless React agent UI.",
       "path": "content/react-ui.md",
-      "sha256": "a66feb0ca1bf1c8e3befda158873741d1e980bed016dab11433cc5888044c324"
+      "sha256": "43d2738706c2a7425eaec4b6a31fe0bd78a8efcd850b21161b2094289f17563c"
     },
     {
       "name": "control-plane",
       "description": "Inspect and safely manage control-plane resources.",
       "path": "content/control-plane.md",
-      "sha256": "a36f68656b5d44d86700c735d21e93f49a0143355561818e3d5bd072eaf57ff4"
+      "sha256": "61a5201542f7baa9e8d5542092292ec51bba1f676fb7163aa8915ed669cf3bb7"
     },
     {
       "name": "workspace",
       "description": "Use experimental session workspaces, file APIs, React workbench, and CLI with explicit ownership and deployment checks.",
       "path": "content/workspace.md",
-      "sha256": "8b0d1e1546572f03c32515f47d6f898999ed85e8c7aa0d91fac4e8dc322bad59"
+      "sha256": "fd5c7821e61a354d4e105c34eebdb712daec6a0a2abcef38d69a072786f7701a"
     }
   ]
 }

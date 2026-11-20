@@ -72,7 +72,7 @@ export function AgentWorkspace({ sessionId, title = "Workspace", actions, onInsp
       <Icon name="file"/><span>{call.status === "failed" ? "File action failed" : done ? verb : "Working"}</span>{path ? <span className="uaw-truncate uaw-font-mono uaw-text-fg-muted">{path}</span> : null}{done ? <Icon name="check" size={12}/> : null}
     </button>;
   };
-  return <AgentWorkspaceLayout {...(className ? { className } : {})} {...(style ? { style } : {})} title={title} status={status} actions={actions} tab={tab} onTabChange={setTab}
+  return <AgentWorkspaceLayout {...(className ? { className } : {})} {...(style ? { style } : {})} title={session.snapshot?.inference?.source === "chatgpt_plan" ? <div style={{ display: "flex", alignItems: "center", gap: 12 }}>{title}<a href="https://chatgpt.com/settings/usage" target="_blank" rel="noreferrer" title="Manage ChatGPT usage" style={{ fontSize: 12, opacity: 0.65, whiteSpace: "nowrap" }}>ChatGPT plan ↗</a></div> : title} status={status} actions={actions} tab={tab} onTabChange={setTab}
     fileCount={files.files.length}
     conversation={<>
       {session.error ? <div role="alert" className="workspace-error"><span>{session.error.message}</span><Button size="sm" onClick={() => void session.refresh().catch(() => undefined)}>Reconnect</Button></div> : null}

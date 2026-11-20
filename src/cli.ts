@@ -188,6 +188,14 @@ export async function runCli(
       return 0;
     }
 
+    if (group === "chatgpt" && ["status", "models", "connect", "disconnect"].includes(action ?? "")) {
+      validateWorkspaceOptions(rest, ["--json", "--yes"]);
+      if (["connect", "disconnect"].includes(action!) && !rest.includes("--yes")) throw new CliError(2, "confirmation_required", "Pass --yes to change the personal ChatGPT connection");
+      if (environment.CODESPRING_AGENTS_API_KEY?.trim()) throw new CliError(2, "personal_login_required", "Unset CODESPRING_AGENTS_API_KEY and use a personal CLI login for ChatGPT plan access");
+      const client = await authenticatedClient(environment, authDependencies(dependencies, environment, stderr));
+      const result = action === "status" ? await client.chatGPTPlan.status() : action === "models" ? await client.chatGPTPlan.models() : action === "connect" ? await client.chatGPTPlan.authorize() : await client.chatGPTPlan.disconnect();
+      writeResult(stdout, json, result, action === "connect" && "authorizationUrl" in result ? `Open this URL while signed into the same CodeSpring account and workspace:\n${result.authorizationUrl}\n` : `${JSON.stringify(result, null, 2)}\n`); return 0;
+    }
     if (group === "capabilities" && (!action || action === "--json")) {
       validateWorkspaceOptions(args.slice(1), ["--json"]);
       const client = await authenticatedClient(environment, authDependencies(dependencies, environment, stderr));
@@ -195,7 +203,7 @@ export async function runCli(
       writeResult(stdout, json, result, `Workspace: ${result.workspace.enabled ? "enabled" : "disabled"} (experimental)\nCan create: ${result.workspace.canCreate}\n`); return 0;
     }
     if (group === "sessions" && ["create", "get", "submit", "events", "cancel"].includes(action ?? "")) {
-      const flags: Record<string, string[]> = { create: ["--agent", "--harness", "--yes", "--json"], get: ["--json"], submit: ["--message", "--idempotency-key", "--yes", "--json"], events: ["--after", "--json"], cancel: ["--turn", "--yes", "--json"] };
+      const flags: Record<string, string[]> = { create: ["--agent", "--harness", "--chatgpt-model", "--chatgpt-grant", "--yes", "--json"], get: ["--json"], submit: ["--message", "--idempotency-key", "--yes", "--json"], events: ["--after", "--json"], cancel: ["--turn", "--yes", "--json"] };
       validateWorkspaceOptions(rest, flags[action!]!);
       const mutation = ["create", "submit", "cancel"].includes(action!);
       if (mutation && !rest.includes("--yes")) throw new CliError(2, "confirmation_required", "Pass --yes for this session mutation");
@@ -203,6 +211,11 @@ export async function runCli(
       if (action !== "create" && !id) throw new CliError(2, "session_id_required", "Provide a session ID");
       let agent: ReturnType<typeof createAgent> | undefined;
       const harness = option(rest, "--harness") ?? "native_v1";
+      const planModel = option(rest, "--chatgpt-model"), planGrant = option(rest, "--chatgpt-grant");
+      if (planModel || planGrant) {
+        if (!planModel || !planGrant || harness !== "codex_wasm_v1") throw new CliError(2, "chatgpt_selection_required", "Provide --chatgpt-model, --chatgpt-grant and --harness codex_wasm_v1");
+        if (environment.CODESPRING_AGENTS_API_KEY?.trim()) throw new CliError(2, "personal_login_required", "Use a personal CLI login for ChatGPT plan access");
+      }
       if (action === "create") {
         const revision = option(rest, "--agent") ?? "";
         const separator = revision.lastIndexOf("@");
@@ -220,7 +233,7 @@ export async function runCli(
       const client = await authenticatedClient(environment, authDependencies(dependencies, environment, stderr));
       let result: unknown;
       if (agent) {
-        const created = await client.sessions.create(agent, { executionHarness: harness as "native_v1" | "codex_wasm_v1" });
+        const created = await client.sessions.create(agent, { executionHarness: harness as "native_v1" | "codex_wasm_v1", ...(planModel && planGrant ? { inference: { source: "chatgpt_plan", model: planModel, grantId: planGrant } as const } : {}) });
         result = { sessionId: created.id, executionHarness: harness };
       } else {
         const session = client.sessions.get(id!);
@@ -470,8 +483,10 @@ function normalizeError(error: unknown): { exitCode: number; code: string; messa
 const helpText = `Use Agent CLI
 
 Usage:
+  use-agent chatgpt status|models [--json]
+  use-agent chatgpt connect|disconnect --yes [--json]
   use-agent capabilities [--json]
-  use-agent sessions create --agent ID@REVISION [--harness native_v1|codex_wasm_v1] --yes [--json]
+  use-agent sessions create --agent ID@REVISION [--harness native_v1|codex_wasm_v1] [--chatgpt-model ID --chatgpt-grant ID] --yes [--json]
   use-agent sessions get <session-id> [--json]
   use-agent sessions submit <session-id> --message TEXT --idempotency-key KEY --yes [--json]
   use-agent sessions events <session-id> [--after CURSOR] [--json]

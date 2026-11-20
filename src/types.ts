@@ -332,7 +332,9 @@ export interface ManagedAgentRevision {
 export interface ManagedAgent extends ManagedAgentSummary {
   instructions: string;
   toolIds: string[];
-  mcpToolIds: string[];
+  mcpServers?: Array<{ serverId: string; snapshotId: string; enabledToolNames: string[] }>;
+  /** @deprecated Older servers only. */
+  mcpToolIds?: string[];
   skillIds: string[];
   currentRevision: ManagedAgentRevision | null;
   hasUnpublishedChanges: boolean;
@@ -345,7 +347,13 @@ export interface AgentDraftInput {
   instructions: string;
   modelProfileId: string;
   toolIds?: string[];
+  /** @deprecated Use mcpServers. Only an empty legacy list is accepted. */
   mcpToolIds?: string[];
+  mcpServers?: Array<{ serverId: string; snapshotId: string; enabledToolNames: string[] }>;
+  maxModelSteps?: number;
+  maxToolCalls?: number;
+  voiceProfileId?: string | null;
+  knowledgeBaseIds?: string[];
   skillIds?: string[];
   assetResolver?: AgentAssetResolver | null;
 }

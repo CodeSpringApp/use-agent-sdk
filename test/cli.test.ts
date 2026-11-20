@@ -167,7 +167,7 @@ describe("Use Agent CLI", () => {
       throw new Error(`Unexpected request: ${url}`);
     }) as typeof fetch;
 
-    const exitCode = await runCli(["auth", "login", "--no-browser"], {
+    const exitCode = await runCli(["auth", "login", "--tenant", "ACME", "--environment", "Production", "--no-browser"], {
       stdout,
       stderr,
       env: {},
@@ -213,6 +213,7 @@ describe("Use Agent CLI", () => {
     );
     const credentialStore = new MemoryCredentialStore();
     credentialStore.value = "old-refresh-token";
+    let refreshAttempts = 0; const refreshDelays: number[] = [];
     const fetchMock = (async (input, init) => {
       const url = String(input);
       if (url.endsWith("/.well-known/openid-configuration")) {
@@ -224,6 +225,7 @@ describe("Use Agent CLI", () => {
       }
       if (url.endsWith("/oauth2/token")) {
         expect(String(init?.body)).toContain("refresh_token=old-refresh-token");
+        if (++refreshAttempts === 1) return new Response("Rate limited", { status: 429, headers: { "Retry-After": "30" } });
         return json({
           access_token: "refreshed-access-token",
           refresh_token: "rotated-refresh-token",
@@ -256,9 +258,11 @@ describe("Use Agent CLI", () => {
       homeDirectory: root,
       credentialStore,
       fetch: fetchMock,
+      sleep: async milliseconds => { refreshDelays.push(milliseconds); },
     });
 
     expect(exitCode).toBe(0);
+    expect(refreshAttempts).toBe(2); expect(refreshDelays).toEqual([30000]);
     expect(stdout.value).toBe("No resources found.\n");
     expect(credentialStore.value).toBe("rotated-refresh-token");
   });

@@ -27,6 +27,21 @@ test("plan errors are returned without retrying against another inference source
   expect(calls).toBe(1);
 });
 
+test("agent writes use current MCP selections and reject ambiguous legacy selections", async () => {
+  const bodies: any[] = [];
+  const client = createClient({ endpoint: "https://runtime.test", apiKey: "test", fetch: async (_url, init) => {
+    bodies.push(JSON.parse(String(init?.body))); return Response.json({ agentId: "test" });
+  } });
+  const draft = { displayName: "Test", instructions: "Test", modelProfileId: "model", toolIds: [], maxModelSteps: 4, maxToolCalls: 2 };
+  await client.agents.create({ ...draft, agentId: "test", mcpToolIds: [] });
+  expect(bodies[0]).not.toHaveProperty("mcpToolIds"); expect(bodies[0].agentId).toBe("test");
+  const mcpServers = [{ serverId: "server", snapshotId: "snapshot", enabledToolNames: ["lookup"] }];
+  await client.agents.updateDraft("test", { ...draft, mcpServers });
+  expect(bodies[1].mcpServers).toEqual(mcpServers);
+  expect(() => client.agents.create({ ...draft, agentId: "test", mcpToolIds: ["legacy"] })).toThrow("Use mcpServers");
+  expect(bodies).toHaveLength(2);
+});
+
 test("CLI plan mutations require explicit intent and a personal login", async () => {
   const { runCli } = await import("../src/cli");
   let output = ""; let requests = 0;

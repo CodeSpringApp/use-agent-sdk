@@ -154,12 +154,12 @@ export async function loadAuthenticatedCliToken(
   const request = fetchFor(dependencies);
   const metadata = await discover(auth.authIssuer, request);
   const refreshed = parseTokenResponse(
-    await postForm(request, metadata.token_endpoint, {
+    await refreshWithBackoff(request, metadata.token_endpoint, {
       grant_type: "refresh_token",
       refresh_token: refreshToken,
       client_id: CLI_CLIENT_ID,
       resource: AGENTS_RESOURCE,
-    }),
+    }, dependencies),
   );
   if (refreshed.refresh_token && refreshed.refresh_token !== refreshToken) {
     await store.set(refreshed.refresh_token);
@@ -388,7 +388,7 @@ async function runtimeJson(
 
 function selectEnvironment(workspaces: Workspace[], options: DeviceLoginOptions) {
   const workspace = options.tenant
-    ? workspaces.find((item) => item.tenantId === options.tenant || item.slug === options.tenant)
+    ? workspaces.find((item) => item.tenantId === options.tenant) ?? uniqueSlug(workspaces, options.tenant)
     : workspaces.length === 1
       ? workspaces[0]
       : undefined;
@@ -399,9 +399,7 @@ function selectEnvironment(workspaces: Workspace[], options: DeviceLoginOptions)
     );
   }
   const environment = options.environment
-    ? workspace.environments.find(
-        (item) => item.environmentId === options.environment || item.slug === options.environment,
-      )
+    ? workspace.environments.find((item) => item.environmentId === options.environment) ?? uniqueSlug(workspace.environments, options.environment)
     : workspace.environments.length === 1
       ? workspace.environments[0]
       : workspace.environments.filter((item) => item.kind === "production").length === 1
@@ -578,5 +576,23 @@ class OAuthResponseError extends Error {
 export class CliAuthError extends Error {
   constructor(readonly code: string, message: string) {
     super(message);
+  }
+}
+
+function uniqueSlug<T extends { slug: string }>(items: T[], selected: string): T | undefined {
+  const matches = items.filter(item => item.slug.toLowerCase() === selected.trim().toLowerCase());
+  return matches.length === 1 ? matches[0] : undefined;
+}
+async function refreshWithBackoff(request: typeof fetch, url: string, values: Record<string, string>, dependencies: CliAuthDependencies): Promise<unknown> {
+  const sleep = dependencies.sleep ?? (milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)));
+  for (let attempt = 0; ; attempt++) {
+    try { return await postForm(request, url, values); }
+    catch (error) {
+      if (!(error instanceof OAuthResponseError) || error.status !== 429) throw error;
+      const delay = error.retryAfterMs ?? 60000;
+      if (attempt >= 2 || delay > 120000) throw new CliAuthError("oauth_rate_limited", "CodeSpring sign-in is rate limited. Wait before trying again; your saved login remains available.");
+      dependencies.stderr.write(`CodeSpring sign-in is rate limited. Retrying in ${Math.ceil(delay / 1000)} seconds.\n`);
+      await sleep(Math.max(1000, delay));
+    }
   }
 }

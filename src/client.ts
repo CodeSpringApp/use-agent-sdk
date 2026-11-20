@@ -630,7 +630,7 @@ export class AgentClient {
     ): Promise<ManagedAgent> =>
       this.transport.request("/v1/agents", {
         method: "POST",
-        body: JSON.stringify(withOperationId(input)),
+        body: JSON.stringify(agentDraftBody(input)),
         ...requestInit(options),
       }),
     updateDraft: (
@@ -640,7 +640,7 @@ export class AgentClient {
     ): Promise<ManagedAgent> =>
       this.transport.request(`/v1/agents/${encodeURIComponent(agentId)}`, {
         method: "PUT",
-        body: JSON.stringify(withOperationId(input)),
+        body: JSON.stringify(agentDraftBody(input)),
         ...requestInit(options),
       }),
     publish: (agentId: string, options: RequestOptions = {}): Promise<ManagedAgent> =>
@@ -1021,4 +1021,10 @@ function isAgentEvent(value: unknown): value is AgentEvent {
     typeof value.createdAt === "string" &&
     (!("turnId" in value) || typeof value.turnId === "string")
   );
+}
+
+function agentDraftBody(input: AgentDraftInput) {
+  const { mcpToolIds, ...draft } = input;
+  if (mcpToolIds?.length) throw new TypeError("Use mcpServers with serverId, snapshotId and enabledToolNames instead of mcpToolIds");
+  return withOperationId(draft);
 }

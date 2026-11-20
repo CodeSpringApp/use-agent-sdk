@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.22.1
+
+- Retry CLI refresh throttling with bounded backoff and preserve the saved login.
+- Match workspace and environment slugs without case sensitivity.
+- Align agent draft MCP selections and execution limits with the runtime contract.
+
 ## 0.22.0
 
 - Complete internal dynamic registration through a temporary loopback callback.

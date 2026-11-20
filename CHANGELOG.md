@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.19.1 - 2026-11-20
+
+- Document hosted and assisted self-hosted options in the SDK and CLI skills.
+- Direct self-hosting setup requests to support@codespring.app without promising
+  automated provisioning or migration.
+- Align the bundled skill catalog version with the package release.
+
 ## 0.19.0 - 2026-10-28
 
 - Add server-only credit policies, member/shared wallets, funding lots, partial or

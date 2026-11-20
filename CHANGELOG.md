@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.20.2
+
+- Correct the packaged skill catalog version and check it against the package version during release tests.
+
 ## 0.20.1
 
 - Keep device login polling alive when the authorization service returns HTTP 429. Respect Retry-After, slow down subsequent polls, and stop at the device-code expiry.

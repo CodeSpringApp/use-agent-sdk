@@ -51,6 +51,10 @@ describe("Use Agent CLI", () => {
     expect(exitCode).toBe(0);
     expect(stdout.value).toContain("# Build a CodeSpring Agents application");
     expect(stderr.value).toBe("");
+    const result = new Sink();
+    expect(await runCli(["skills", "list", "--json"], { stdout: result, stderr, env: {} })).toBe(0);
+    const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+    expect(JSON.parse(result.value).data.packageVersion).toBe(manifest.version);
   });
 
   test("does not accept credentials as command arguments", async () => {

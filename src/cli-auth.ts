@@ -247,6 +247,8 @@ async function postForm(
     throw new OAuthResponseError(
       String(body.error ?? "oauth_request_failed"),
       String(body.error_description ?? `OAuth request failed with ${response.status}`),
+      response.status,
+      retryAfterMilliseconds(response.headers.get("Retry-After")),
     );
   }
   return body;
@@ -288,7 +290,8 @@ async function pollForToken(
   const deadline = Date.now() + device.expires_in * 1_000;
   let interval = device.interval * 1_000;
   while (Date.now() < deadline) {
-    await sleep(interval);
+    await sleep(Math.min(interval, Math.max(0, deadline - Date.now())));
+    if (Date.now() >= deadline) break;
     try {
       return parseTokenResponse(await postForm(request, tokenEndpoint, {
         grant_type: "urn:ietf:params:oauth:grant-type:device_code",
@@ -297,6 +300,10 @@ async function pollForToken(
         resource: AGENTS_RESOURCE,
       }));
     } catch (error) {
+      if (error instanceof OAuthResponseError && error.status === 429) {
+        interval = Math.max(interval + 5_000, error.retryAfterMs ?? 60_000);
+        continue;
+      }
       if (error instanceof OAuthResponseError && error.code === "authorization_pending") continue;
       if (error instanceof OAuthResponseError && error.code === "slow_down") {
         interval += 5_000;
@@ -555,8 +562,15 @@ function fetchFor(dependencies: CliAuthDependencies): typeof fetch {
   return dependencies.fetch ?? globalThis.fetch.bind(globalThis);
 }
 
+function retryAfterMilliseconds(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const seconds = Number(value);
+  const milliseconds = Number.isFinite(seconds) ? seconds * 1_000 : Date.parse(value) - Date.now();
+  return Number.isFinite(milliseconds) ? Math.max(1_000, milliseconds) : undefined;
+}
+
 class OAuthResponseError extends Error {
-  constructor(readonly code: string, message: string) {
+  constructor(readonly code: string, message: string, readonly status?: number, readonly retryAfterMs?: number) {
     super(message);
   }
 }

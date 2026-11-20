@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.20.1
+
+- Keep device login polling alive when the authorization service returns HTTP 429. Respect Retry-After, slow down subsequent polls, and stop at the device-code expiry.
+
 ## 0.20.0
 
 - Add experimental workspace session creation, explicit browser ownership, runtime capability discovery, and file list/read APIs.

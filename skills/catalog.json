@@ -32,5 +32,6 @@
       "path": "content/workspace.md",
       "sha256": "8b0d1e1546572f03c32515f47d6f898999ed85e8c7aa0d91fac4e8dc322bad59"
     }
-  ]
+  ],
+  "version": "0.20.1"
 }

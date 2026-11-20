@@ -93,6 +93,7 @@ describe("Use Agent CLI", () => {
     const stderr = new Sink();
     const credentialStore = new MemoryCredentialStore();
     let tokenPolls = 0;
+    const pollDelays: number[] = [];
     const requests: string[] = [];
     const fetchMock = (async (input, init) => {
       const url = String(input);
@@ -122,6 +123,9 @@ describe("Use Agent CLI", () => {
             400,
           );
         }
+        if (tokenPolls === 2) return new Response("Rate limited", { status: 429, headers: { "Retry-After": "30" } });
+        if (tokenPolls === 3) return json({ error: "slow_down" }, 400);
+        if (tokenPolls === 4) return new Response("Rate limited", { status: 429 });
         return json({
           access_token: "oauth-access-secret",
           refresh_token: "oauth-refresh-secret",
@@ -166,11 +170,12 @@ describe("Use Agent CLI", () => {
       homeDirectory: root,
       credentialStore,
       fetch: fetchMock,
-      sleep: async () => {},
+      sleep: async milliseconds => { pollDelays.push(milliseconds); },
     });
 
     expect(exitCode).toBe(0);
     expect(credentialStore.value).toBe("oauth-refresh-secret");
+    expect(pollDelays).toEqual([5_000, 5_000, 30_000, 35_000, 60_000]);
     expect(stderr.value).toContain("ABCD-EFGH");
     expect(`${stdout.value}${stderr.value}`).not.toContain("device-secret");
     expect(`${stdout.value}${stderr.value}`).not.toContain("oauth-access-secret");

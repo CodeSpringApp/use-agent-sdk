@@ -74,3 +74,4 @@ function nodeSkillMediaType(path: string) {
     default: return "application/octet-stream";
   }
 }
+export { connectChatGPTLocally } from "./cli-chatgpt";

@@ -17,3 +17,5 @@ For self-hosting setup, direct the user to support@codespring.app. Setup current
 Use `use-agent agents list --json` and `use-agent tools list --json` for supported control-plane inspection. Do not scrape the dashboard or query platform storage directly.
 
 For personal ChatGPT plan access, load `use-agent skills get workspace`. It is an exact-account internal pilot with separate OAuth setup. Check eligibility and connection status before offering it, keep the billing source explicit, and never fall back to API pricing after a plan error.
+
+For the internal local-registration mode, initial consent uses the CLI on the browser computer. Subsequent API and SDK calls run on the server. The dashboard can refresh connection status after CLI consent; do not imply a hosted callback is available in this mode.

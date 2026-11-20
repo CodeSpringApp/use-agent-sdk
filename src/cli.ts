@@ -1,3 +1,4 @@
+import { connectChatGPTLocally } from "./cli-chatgpt";
 import { createAgent } from "./agent";
 import { createHash } from "node:crypto";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -6,6 +7,7 @@ import { dirname, join } from "node:path";
 import { AgentError, createClient } from "./client";
 import {
   CliAuthError,
+  openBrowser,
   type CredentialStore,
   loadAuthenticatedCliToken,
   loginWithDevice,
@@ -188,12 +190,16 @@ export async function runCli(
       return 0;
     }
 
-    if (group === "chatgpt" && ["status", "models", "connect", "disconnect"].includes(action ?? "")) {
+    if (group === "chatgpt" && ["status", "models", "metrics", "connect", "disconnect"].includes(action ?? "")) {
       validateWorkspaceOptions(rest, ["--json", "--yes"]);
       if (["connect", "disconnect"].includes(action!) && !rest.includes("--yes")) throw new CliError(2, "confirmation_required", "Pass --yes to change the personal ChatGPT connection");
       if (environment.CODESPRING_AGENTS_API_KEY?.trim()) throw new CliError(2, "personal_login_required", "Unset CODESPRING_AGENTS_API_KEY and use a personal CLI login for ChatGPT plan access");
       const client = await authenticatedClient(environment, authDependencies(dependencies, environment, stderr));
-      const result = action === "status" ? await client.chatGPTPlan.status() : action === "models" ? await client.chatGPTPlan.models() : action === "connect" ? await client.chatGPTPlan.authorize() : await client.chatGPTPlan.disconnect();
+      if (action === "connect" && (await client.chatGPTPlan.status()).connectionMethod === "local") {
+        const result = await connectChatGPTLocally(client.chatGPTPlan, { openBrowser: dependencies.openBrowser ?? openBrowser, write: text => stderr.write(text) });
+        writeResult(stdout, json, result, "ChatGPT connected. Return to Playground or start a workspace session.\n"); return 0;
+      }
+      const result = action === "metrics" ? await client.chatGPTPlan.metrics() : action === "status" ? await client.chatGPTPlan.status() : action === "models" ? await client.chatGPTPlan.models() : action === "connect" ? await client.chatGPTPlan.authorize() : await client.chatGPTPlan.disconnect();
       writeResult(stdout, json, result, action === "connect" && "authorizationUrl" in result ? `Open this URL while signed into the same CodeSpring account and workspace:\n${result.authorizationUrl}\n` : `${JSON.stringify(result, null, 2)}\n`); return 0;
     }
     if (group === "capabilities" && (!action || action === "--json")) {
@@ -483,7 +489,7 @@ function normalizeError(error: unknown): { exitCode: number; code: string; messa
 const helpText = `Use Agent CLI
 
 Usage:
-  use-agent chatgpt status|models [--json]
+  use-agent chatgpt status|models|metrics [--json]
   use-agent chatgpt connect|disconnect --yes [--json]
   use-agent capabilities [--json]
   use-agent sessions create --agent ID@REVISION [--harness native_v1|codex_wasm_v1] [--chatgpt-model ID --chatgpt-grant ID] --yes [--json]

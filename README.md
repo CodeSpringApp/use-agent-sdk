@@ -310,8 +310,10 @@ Workspace sessions use the Worker-native Codex-derived turn loop and persistent
 text files. Check `await client.capabilities.get()` for deployment availability.
 The configured model API and workspace credits pay for inference by default.
 An explicitly enabled internal pilot can select personal ChatGPT plan usage through
-Sign in with ChatGPT. This requires a provisioned hosted OAuth client and plan access;
-a subscription alone is not enough. Check `use-agent chatgpt status --json` and the
+Sign in with ChatGPT. The internal registration mode uses a local CLI callback
+for initial consent, then runs API/SDK sessions entirely on the server. Partner
+mode uses a provisioned hosted OAuth client. A subscription alone does not enable
+either mode. Check `use-agent chatgpt status --json` and the
 [workspace guide](skills/content/workspace.md) before offering this option.
 Workspace sessions do not run a shell or process video files.
 

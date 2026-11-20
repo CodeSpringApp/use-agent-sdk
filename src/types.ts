@@ -1,6 +1,7 @@
 export interface ChatGPTPlanSelection { source: "chatgpt_plan"; model: string; grantId: string }
 export interface ChatGPTPlanStatus {
   eligible: boolean;
+  connectionMethod?: "browser" | "local";
   status: "unavailable" | "setup_required" | "disconnected" | "authorizing" | "connected" | "reconnect_required";
   grantId: string | null;
   account: { label: string; email?: string } | null;
@@ -8,6 +9,12 @@ export interface ChatGPTPlanStatus {
 }
 export interface ChatGPTPlanModels { models: Array<{ id: string; label: string }> }
 export interface ChatGPTPlanAuthorization { authorizationUrl: string; expiresAt: string }
+export interface ChatGPTPlanMetrics {
+  since: string; updatedAt: string | null;
+  finishedRequests: number; completed: number; failed: number; cancelled: number; planLimited: number;
+  durationMsTotal: number; firstTextMsTotal: number; requestsWithText: number;
+  inputTokens: number; outputTokens: number;
+}
 
 export type ExecutionHarness = "native_v1" | "codex_wasm_v1";
 export interface CreateSessionOptions extends RequestOptions {

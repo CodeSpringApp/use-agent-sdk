@@ -1,4 +1,4 @@
-import type { ChatGPTPlanStatus, ChatGPTPlanModels, ChatGPTPlanAuthorization } from "./types";
+import type { ChatGPTPlanStatus, ChatGPTPlanModels, ChatGPTPlanAuthorization, ChatGPTPlanMetrics } from "./types";
 import type { CreateSessionOptions, RuntimeCapabilities, SessionWorkspace, WorkspaceFileContent } from "./types";
 import type { ProviderModelPage, ProviderModelOptions, ProviderModelValidation } from "./types";
 import type {
@@ -560,10 +560,12 @@ export class AgentClient {
 
   /** Internal pilot. Requires a personal CodeSpring login, never a workspace API key. */
   readonly chatGPTPlan = {
+    metrics: (options: RequestOptions = {}): Promise<ChatGPTPlanMetrics> => this.transport.request("/v1/chatgpt-plan/metrics", requestInit(options)),
     status: (options: RequestOptions = {}): Promise<ChatGPTPlanStatus> => this.transport.request("/v1/chatgpt-plan/status", requestInit(options)),
     models: (options: RequestOptions = {}): Promise<ChatGPTPlanModels> => this.transport.request("/v1/chatgpt-plan/models", requestInit(options)),
     authorize: (options: RequestOptions = {}): Promise<ChatGPTPlanAuthorization> => this.transport.request("/v1/chatgpt-plan/begin", { ...requestInit(options), method: "POST", body: "{}" }),
-    complete: (input: { state: string; code: string } | { state: string; error: string }, options: RequestOptions = {}): Promise<ChatGPTPlanStatus> => this.transport.request("/v1/chatgpt-plan/complete", { ...requestInit(options), method: "POST", body: JSON.stringify(input) }),
+    authorizeLocal: (redirectUri: string, options: RequestOptions = {}): Promise<ChatGPTPlanAuthorization> => this.transport.request("/v1/chatgpt-plan/begin", { ...requestInit(options), method: "POST", body: JSON.stringify({ redirectUri }) }),
+    complete: (input: { state: string; code?: string; error?: string; clientId?: string }, options: RequestOptions = {}): Promise<ChatGPTPlanStatus> => this.transport.request("/v1/chatgpt-plan/complete", { ...requestInit(options), method: "POST", body: JSON.stringify(input) }),
     disconnect: (options: RequestOptions = {}): Promise<ChatGPTPlanStatus> => this.transport.request("/v1/chatgpt-plan/disconnect", { ...requestInit(options), method: "POST", body: "{}" }),
   };
 

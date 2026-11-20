@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.22.0
+
+- Complete internal dynamic registration through a temporary loopback callback.
+- Expose `authorizeLocal`, callback client IDs and the Node connection helper.
+- Add private plan metrics through the API, SDK and CLI.
+- Document local consent versus server-side session execution in packaged skills.
+
 ## 0.21.0
 
 - Add personal ChatGPT plan status, authorization, model discovery and disconnect APIs for the internal pilot.

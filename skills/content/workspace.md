@@ -48,14 +48,17 @@ Do not promise that self-hosting is automated. For assisted setup, use support@c
 Check `use-agent chatgpt status --json` or `client.chatGPTPlan.status()` first.
 Only explicitly enabled human accounts and workspaces can enroll. A subscription
 alone does not enable this feature. `setup_required` means the operator still
-needs the provisioned OpenAI hosted OAuth client and plan-usage access.
+needs partner-client configuration. An internal deployment may explicitly select
+local dynamic registration instead. Check `connectionMethod`; do not infer the
+mode from package version or assume that any self-hosted deployment is eligible.
 Do not copy Codex auth files, reuse CLI client IDs, or paste OAuth tokens.
 
 Use a personal CodeSpring CLI login with `CODESPRING_AGENTS_API_KEY` unset:
 
 ```sh
 use-agent chatgpt connect --yes --json
-# Open the returned URL while signed into the same CodeSpring account and workspace.
+# For connectionMethod=local, the CLI opens a browser and waits for consent.
+# Run it on the same computer as the browser. The callback uses 127.0.0.1.
 use-agent chatgpt status --json
 use-agent chatgpt models --json
 use-agent sessions create --agent writer@1 --harness codex_wasm_v1 --chatgpt-model MODEL_ID --chatgpt-grant GRANT_ID --yes --json
@@ -63,7 +66,12 @@ use-agent sessions create --agent writer@1 --harness codex_wasm_v1 --chatgpt-mod
 
 The model comes from the current account catalog. The grant ID comes from the
 connected status, not user-supplied account identity. SDK equivalents are
-`client.chatGPTPlan.authorize()`, `.status()`, `.models()` and `.disconnect()`.
+`client.chatGPTPlan.authorize()` for partner mode, `.authorizeLocal(redirectUri)`
+for a local callback, `.complete({ state, code, clientId })`, `.status()`,
+`.models()`, `.metrics()` and `.disconnect()`.
+The Node export `connectChatGPTLocally` runs the callback listener and forwards
+the one-time code through the authenticated API. Provider tokens stay encrypted
+in the runtime broker. No local process is needed after connection.
 Pass `inference: { source: "chatgpt_plan", model, grantId }` alongside the
 workspace harness when creating a session with a personal CLI credential.
 Workspace API keys and browser tokens cannot enroll or create personal plan
@@ -75,3 +83,11 @@ run. Never silently fall back to an API key. ChatGPT allowance covers model
 inference; platform fees and tool costs remain separate. This flow does not
 support voice or the ordinary API output-token cap. Runtime step, tool, stream
 and timeout bounds still apply. Use the returned `manageUsageUrl` for limits.
+
+For internal evidence, use `use-agent chatgpt metrics --json`. These are cumulative
+provider-request counters, not completed agent turns: one turn can make multiple
+model requests. Inspect session status and artifacts separately to prove a full
+turn. Metrics include completed/failed/cancelled requests, plan-limit failures,
+reported input/output tokens, total duration and time to first text. Compute
+averages using `finishedRequests` and `requestsWithText`; these are not percentiles
+or dollar savings. No prompts, response text or tokens are retained in metrics.

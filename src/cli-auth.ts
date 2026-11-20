@@ -490,7 +490,7 @@ function systemCredentialStore(): CredentialStore {
   };
 }
 
-async function openBrowser(url: string): Promise<boolean> {
+export async function openBrowser(url: string): Promise<boolean> {
   secureUrl(url, "verification URL");
   const command = platform() === "darwin" ? "open" : platform() === "linux" ? "xdg-open" : null;
   if (!command) return false;
